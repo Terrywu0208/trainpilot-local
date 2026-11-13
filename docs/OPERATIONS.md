@@ -835,6 +835,12 @@ above were captured on 2026-11-12 from commit `ed18c38` of this
 repository; the web app section (§6) and its screenshots were refreshed
 on 2026-11-13 after the console rebuild and five rounds of use-case
 verification. Flow G (pretraining) and its screenshot were added the
-same day; its numbers are deterministic (seed 42) and match anywhere. Your numbers should match exactly for the deterministic
+same day; its numbers are deterministic (seed 42) and match anywhere.
+The console UI was redesigned later that day after a UI/UX audit
+(fixed app-shell layout with independently scrolling panes, one
+accent colour, a real type scale, a capped Recent runs table, the
+composer's structured fields folded into "Run options", and skipped
+states in the process diagram); all screenshots were regenerated
+afterwards, and the walkthrough still passes 18/18. Your numbers should match exactly for the deterministic
 flows (tests, smoke training, lab50 demo systems) and will differ —
 by design — for real cluster experiments.
