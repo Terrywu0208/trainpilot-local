@@ -71,11 +71,11 @@
   .view.paused .dim { opacity: .45; pointer-events: none; transition: opacity .3s; }
 
   /* ---- type roles ---- */
-  h3 { font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: .07em;
-       color: var(--ink-2); margin: 18px 0 8px; }
+  h3 { font-size: 13.5px; font-weight: 650; letter-spacing: -.005em;
+       color: var(--ink); margin: 20px 0 8px; }
   h3:first-child { margin-top: 0; }
-  section.view > h3:first-of-type { font-size: 18px; font-weight: 700; text-transform: none;
-       letter-spacing: 0; color: var(--ink); margin-bottom: 6px; }
+  section.view > h3:first-of-type { font-size: 20px; font-weight: 700; text-transform: none;
+       letter-spacing: -.015em; color: var(--ink); margin-bottom: 6px; }
   h4 { font-size: 14px; font-weight: 700; color: var(--ink); }
   label { font-size: 12.5px; font-weight: 600; color: var(--ink-2); display: block; margin: 10px 0 4px; }
   textarea, input, select { width: 100%; padding: 9px 11px; border: 1px solid var(--line-strong);
@@ -93,7 +93,7 @@
                      padding: 9px 14px; border-radius: var(--r-md); cursor: pointer; font-weight: 600; }
   .hint { color: var(--ink-2); font-size: 12.5px; margin: 6px 0 0; }
   .presets { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 10px; align-items: center; }
-  .presets span { font-size: 11px; letter-spacing: .07em; text-transform: uppercase; color: var(--ink-3); font-weight: 700; }
+  .presets span { font-size: 12.5px; color: var(--ink-3); font-weight: 600; }
   button.preset { background: var(--surface); border: 1px solid var(--line); color: var(--ink-2);
                   padding: 6px 12px; border-radius: 999px; cursor: pointer; font-size: 12.5px; font-weight: 500; }
   button.preset:hover { border-color: var(--line-strong); color: var(--ink); background: var(--surface-2); }
@@ -172,7 +172,7 @@
   .who { font-size: 11.5px; color: var(--ink-3); margin: 2px 4px -4px; }
   .who.user { align-self: flex-end; } .who.assistant { align-self: flex-start; }
   .msg .frow { margin: 3px 0; }
-  .msg .mtitle { font-weight: 800; font-size: 15px; }
+  .msg .mtitle { font-weight: 700; font-size: 16px; letter-spacing: -.01em; }
   .msg .msub { font-size: 12.5px; margin-top: 4px; white-space: pre-wrap; }
   .msg.verdict-card { align-self: stretch; max-width: 100%; border: 0;
                       border-left: 4px solid; border-radius: var(--r-md); }
@@ -200,8 +200,14 @@
   .vnode.active { background: var(--accent-soft); }
   .vnode.active .plabel { color: var(--ink); }
   .vnode.active .vicon { border-color: var(--accent); background: var(--accent-soft); color: var(--accent-dark);
-                         animation: pulse 1s infinite; }
+                         animation: breathe 1.8s ease-out infinite; }
+  @keyframes breathe { 0% { box-shadow: 0 0 0 0 rgba(36, 86, 214, .35); }
+                       70% { box-shadow: 0 0 0 7px rgba(36, 86, 214, 0); }
+                       100% { box-shadow: 0 0 0 0 rgba(36, 86, 214, 0); } }
   .vnode.done .vicon { border-color: var(--ok); background: var(--ok); color: #fff; }
+  .vnode.done::after { content: ""; position: absolute; left: 13px; top: 30px; bottom: -6px;
+                       width: 2px; background: var(--ok); opacity: .45; }
+  .vnode.done:last-child::after { display: none; }
   .vnode.done .plabel { color: var(--ink); }
   .vnode.failed .vicon { border-color: var(--bad); background: var(--bad); color: #fff; }
   .vnode.failed .plabel { color: var(--ink); }
@@ -218,8 +224,7 @@
   .pnode .praw { display: block; font-size: 11px; font-family: ui-monospace, Menlo, monospace;
                  color: var(--ink-3); margin-top: 2px; white-space: nowrap;
                  overflow: hidden; text-overflow: ellipsis; }
-  .pnode.active { border-color: var(--accent); background: var(--accent-soft); color: var(--accent-dark);
-                  animation: pulse 1s infinite; }
+  .pnode.active { border-color: var(--accent); background: var(--accent-soft); color: var(--accent-dark); }
   .pnode.done { border-color: var(--ok); background: var(--ok-tint); color: var(--ok); }
   .pnode.failed { border-color: var(--bad); background: var(--bad-tint); color: var(--bad); }
   .pnode.loop { box-shadow: 0 0 0 3px rgba(146, 88, 10, .35); border-color: var(--warn); }
@@ -240,8 +245,16 @@
   .story.vertical .acard { width: 100%; }
   .story.vertical .aarrow { transform: rotate(90deg); align-self: flex-start; margin-left: 14px; }
   .acard { width: 258px; border: 1px solid var(--line); border-left: 3px solid var(--idle);
-           border-radius: var(--r-md); padding: 11px 12px; background: var(--surface);
-           box-shadow: var(--shadow-card); }
+           border-radius: var(--r-md); padding: 11px 12px; background: var(--surface); }
+  /* In the live console the attempts read as a ledger, not a card stack:
+     hairline rows, a status rule on the left, the metric set as a figure. */
+  .story.vertical .acard { border: 0; border-top: 1px solid var(--line); border-radius: 0;
+           background: transparent; padding: 12px 4px 12px 14px;
+           box-shadow: inset 3px 0 0 var(--idle); }
+  .story.vertical .acard.running { box-shadow: inset 3px 0 0 var(--accent); }
+  .story.vertical .acard.failed { box-shadow: inset 3px 0 0 var(--bad); }
+  .story.vertical .acard.succeeded { box-shadow: inset 3px 0 0 var(--ok); }
+  .story.vertical .aarrow { display: none; }
   .acard.running { border-left-color: var(--accent); }
   .acard.failed { border-left-color: var(--bad); }
   .acard.succeeded { border-left-color: var(--ok); }
@@ -265,7 +278,8 @@
   .fixchip { display: inline-block; margin-top: 6px; background: var(--ok-tint);
              border: 1px solid var(--ok-line); color: var(--ok); border-radius: 6px;
              padding: 4px 8px; font-size: 12.5px; font-weight: 600; }
-  .accbig { font-size: 28px; font-weight: 800; color: var(--ink); margin-top: 6px; }
+  .accbig { font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size: 34px;
+            font-weight: 600; letter-spacing: -.02em; color: var(--ink); margin-top: 6px; }
   .aarrow { align-self: center; color: #94a3b8; font-size: 20px; font-weight: 800; }
   .empty-note { color: var(--ink-2); font-size: 13px; border: 1px dashed var(--line-strong);
                 border-radius: var(--r-md); padding: 10px 12px; }
@@ -277,13 +291,14 @@
   .verdict.ok { background: var(--ok-tint); border-left-color: var(--ok); }
   .verdict.bad { background: var(--bad-tint); border-left-color: var(--bad); }
   .verdict.warn { background: var(--warn-tint); border-left-color: var(--warn); }
-  .verdict .vtitle { font-size: 16px; font-weight: 700; color: var(--ink); }
+  .verdict .vtitle { font-size: 18px; font-weight: 700; letter-spacing: -.01em; color: var(--ink); }
   .verdict .vsub { font-size: 12.5px; font-weight: 400; color: var(--ink-2); margin-top: 3px; white-space: pre-wrap; }
-  .vgrid { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
-           gap: 10px; margin: 10px 0; }
-  .vbadge { border: 1px dashed var(--line-strong); border-radius: var(--r-md);
-            padding: 12px 14px; background: var(--surface); }
-  .vbadge.ok, .vbadge.no { border: 1px solid var(--line); }
+  /* Verification reads as one instrument strip: four checks on a single
+     ruled band, divided — not four separate cards. */
+  .vgrid { display: flex; flex-wrap: wrap; margin: 12px 0;
+           border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); }
+  .vbadge { flex: 1 1 150px; padding: 12px 16px 12px 0; background: transparent; }
+  .vbadge + .vbadge { border-left: 1px solid var(--line); padding-left: 16px; }
   .vbadge .vic { display: inline-flex; align-items: center; justify-content: center;
                  width: 24px; height: 24px; border-radius: 50%; font-size: 14px; line-height: 1;
                  background: var(--surface-2); color: var(--ink-3); }
@@ -291,7 +306,8 @@
   .vbadge.no .vic { background: var(--bad-tint); color: var(--bad); }
   .vbadge .vlab { font-weight: 600; font-size: 13.5px; margin-top: 6px; }
   .vbadge .vnote { color: var(--ink-2); font-size: 12.5px; margin-top: 2px; }
-  .vbadge .accnum { font-size: 28px; font-weight: 800; margin-top: 2px; color: var(--ink); }
+  .vbadge .accnum { font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size: 32px;
+                    font-weight: 600; letter-spacing: -.02em; margin-top: 2px; color: var(--ink); }
   .meter { margin-top: 7px; }
 
   /* ---- approval gate card (inline, docked above the composer) ---- */
@@ -338,14 +354,14 @@
   .kpis { display: flex; gap: 10px; flex-wrap: wrap; margin: 10px 0; }
   .kpi { flex: 1; min-width: 140px; background: var(--surface-2); border: 1px solid var(--line);
          border-radius: var(--r-md); padding: 10px 12px; }
-  .kpi .v { font-size: 28px; font-weight: 800; }
+  .kpi .v { font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size: 26px;
+            font-weight: 600; letter-spacing: -.02em; }
   .kpi .k { font-size: 12.5px; color: var(--ink-2); font-weight: 600; }
   .tiles { display: flex; gap: 10px; flex-wrap: wrap; margin: 8px 0 14px; }
   .tile { min-width: 128px; flex: 1; border: 1px solid var(--line); border-radius: var(--r-md);
           padding: 9px 12px; background: var(--surface); }
-  .tile .v { font-size: 18px; font-weight: 800; }
-  .tile .k { font-size: 11.5px; color: var(--ink-2); font-weight: 700; text-transform: uppercase;
-             letter-spacing: .3px; }
+  .tile .v { font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size: 17px; font-weight: 600; }
+  .tile .k { font-size: 12px; color: var(--ink-2); font-weight: 600; }
   .tile.good .v { color: var(--ok); } .tile.bad .v { color: var(--bad); }
   .chartbox { border: 1px solid var(--line); border-radius: var(--r-md); padding: 12px 14px; margin: 12px 0; }
   .chartbox h4 { margin: 0 0 8px; }
@@ -396,6 +412,10 @@
   }
   @media (max-width: 640px) { .acard { width: 100%; } header h1 { font-size: 17px; } }
 
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after { animation-duration: .001s !important;
+      animation-iteration-count: 1 !important; transition-duration: .001s !important; }
+  }
 </style>
 </head>
 <body>
@@ -425,7 +445,7 @@
       <div class="dim" id="console-dim">
         <div id="plan-summary" class="plan-card"></div>
 
-        <h3>Process diagram &mdash; watch it work</h3>
+        <h3>Run progress</h3>
         <div class="vpipe" id="plan-nodes"></div>
         <div class="loop-strip" id="loop-strip"></div>
 
@@ -434,7 +454,7 @@
 
         <div class="verdict" id="verdict"></div>
 
-        <h3>Final verification</h3>
+        <h3>Verification</h3>
         <div class="vgrid" id="vgrid">
           <div class="vbadge" id="vb-exists"><div class="vic">&#8226;</div><div class="vlab">Checkpoint exists</div><div class="vnote">Waiting for a result&hellip;</div></div>
           <div class="vbadge" id="vb-loadable"><div class="vic">&#8226;</div><div class="vlab">Checkpoint loadable</div><div class="vnote">Waiting for a result&hellip;</div></div>
@@ -489,7 +509,7 @@
 
       <div class="composer dim">
         <div class="presets">
-          <span>Presets:</span>
+          <span>Try:</span>
           <button type="button" class="preset" id="preset-canonical">Canonical fine-tune</button>
           <button type="button" class="preset" id="preset-followup">Follow-up: run 3 epochs (same session)</button>
           <button type="button" class="preset" id="preset-pretrain">Pretrain a tiny LM from scratch</button>
@@ -510,7 +530,7 @@
             </div>
           </details>
           <div class="composer-bar">
-            <span class="composer-note">Local CPU only &middot; plans, launches, repairs, then verifies</span>
+            <span class="composer-note">Local CPU only. Nothing is claimed until it is verified.</span>
             <button class="send" id="btn-run" title="Start run (Enter)" aria-label="Start run"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19V5"/><path d="M5 12l7-7 7 7"/></svg></button>
           </div>
         </div>
@@ -523,7 +543,7 @@
 
 <!-- ============ View 2: Failure Memory ============ -->
 <section id="view-failures" class="view">
-  <h3>Failure Memory Viewer</h3>
+  <h3>Failure memory</h3>
   <p class="muted">Every diagnosis the agent has recorded across runs. The critic consults this
   memory on later runs, but still needs fresh log evidence before reusing a fix.</p>
   <label for="failure-search">Filter by fault family or root cause</label>
@@ -535,7 +555,7 @@
 
 <!-- ============ View 3: Benchmark Dashboard ============ -->
 <section id="view-benchmark" class="view">
-  <h3>Benchmark Dashboard</h3>
+  <h3>Benchmark</h3>
   <p class="muted">Numbers come from the evaluation harness (reports/final/summary.json),
   measured on this local CPU setup with the stub LLM provider. The web app never recomputes them.</p>
   <div id="benchmark-body"><p class="muted">Loading&hellip;</p></div>
@@ -543,7 +563,7 @@
 
 <!-- ============ View 4: Replay ============ -->
 <section id="view-replay" class="view">
-  <h3>Replay a finished run</h3>
+  <h3>Replay</h3>
   <p class="muted">Replays a finished run's persisted events at 8&times; speed. Nothing is re-executed &mdash;
   this is a playback of the recorded event stream, clearly watermarked so it can never be mistaken for a live run.</p>
   <div class="row">
@@ -715,6 +735,30 @@ function renderStory(ctx) {
     card.innerHTML = h;
     if (a.logs) card.querySelector("pre.log").textContent = a.logs;
     ctx.story.appendChild(card);
+  });
+  animateAccBig(ctx);
+}
+
+// The one orchestrated motion in the app: when a verified accuracy first
+// lands, the figure counts into place. Live console only — the replay
+// scrubber rebuilds its story on every frame and must stay still.
+const countedAcc = new Set();
+function animateAccBig(ctx) {
+  if (ctx.prefix !== "live") return;
+  if (window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+  ctx.story.querySelectorAll(".accbig").forEach((el, idx) => {
+    const finalText = el.textContent;
+    const target = parseFloat(finalText);
+    const key = idx + ":" + finalText;
+    if (!isFinite(target) || countedAcc.has(key)) return;
+    countedAcc.add(key);
+    const decimals = (finalText.split(".")[1] || "").length;
+    const t0 = performance.now(), dur = 650;
+    (function tick(t) {
+      const k = Math.min(1, (t - t0) / dur), e = 1 - Math.pow(1 - k, 3);
+      el.textContent = (target * e).toFixed(decimals);
+      if (k < 1) requestAnimationFrame(tick); else el.textContent = finalText;
+    })(t0);
   });
 }
 

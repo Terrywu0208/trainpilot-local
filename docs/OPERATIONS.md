@@ -845,6 +845,11 @@ afterwards, and the walkthrough still passes 18/18. The chat pane was
 then refined in the style of modern AI chat tools: the composer is a
 single floating rounded card (borderless input, the run options and a
 round send button inside it), assistant messages render as plain text
-without bubbles, and user messages use a soft grey capsule. Your numbers should match exactly for the deterministic
+without bubbles, and user messages use a soft grey capsule. A final
+pass followed the frontend-design skill's guidance: sentence-case
+headings instead of tracked-out caps labels, attempts as a hairline
+ledger with the verified metric set as a large mono figure (it counts
+into place when it first lands), verification as one divided strip
+instead of four cards, and a completed-path spine in the process rail. Your numbers should match exactly for the deterministic
 flows (tests, smoke training, lab50 demo systems) and will differ —
 by design — for real cluster experiments.
