@@ -1,0 +1,395 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>TrainPilot-Local</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+<style>
+  body { font-family: system-ui, sans-serif; margin: 0; background: #f6f7f9; color: #1c2333; }
+  header { background: #14213d; color: #fff; padding: 12px 20px; display: flex; gap: 16px; align-items: baseline; }
+  header h1 { font-size: 20px; margin: 0; }
+  header .sub { color: #b8c4de; font-size: 13px; }
+  nav { display: flex; gap: 8px; padding: 10px 20px 0; }
+  nav button { padding: 8px 14px; border: 1px solid #c6cdd9; background: #fff; border-radius: 8px 8px 0 0; cursor: pointer; }
+  nav button.active { background: #14213d; color: #fff; }
+  main { padding: 16px 20px 40px; }
+  .view { display: none; background: #fff; border: 1px solid #dde2ec; border-radius: 0 8px 8px 8px; padding: 16px; }
+  .view.active { display: block; }
+  label { font-size: 13px; font-weight: 600; display: block; margin: 10px 0 4px; }
+  textarea, input, select { width: 100%; padding: 8px; border: 1px solid #c6cdd9; border-radius: 6px; box-sizing: border-box; }
+  .row { display: flex; gap: 12px; flex-wrap: wrap; }
+  .row > div { flex: 1; min-width: 140px; }
+  button.primary { background: #1d6f42; color: #fff; border: 0; padding: 10px 18px; border-radius: 6px; cursor: pointer; font-weight: 600; }
+  button.secondary { background: #e7ebf2; border: 1px solid #c6cdd9; padding: 10px 14px; border-radius: 6px; cursor: pointer; }
+  .session-bar { background: #eef3ff; border: 1px solid #c9d6f5; border-radius: 6px; padding: 8px 12px; font-size: 13px; margin-bottom: 12px; }
+  .nodes { display: flex; flex-wrap: wrap; gap: 6px; margin: 8px 0; }
+  .node { font-size: 12px; padding: 5px 9px; border-radius: 20px; background: #e7ebf2; color: #5a6577; border: 1px solid #c6cdd9; }
+  .node.running { background: #dbeafe; color: #1d4ed8; border-color: #93c5fd; animation: pulse 1s infinite; }
+  .node.ok { background: #dcfce7; color: #166534; border-color: #86efac; }
+  .node.fail { background: #fee2e2; color: #991b1b; border-color: #fca5a5; }
+  @keyframes pulse { 50% { opacity: .55; } }
+  .timeline { display: flex; gap: 10px; margin: 12px 0; }
+  .tl-point { text-align: center; font-size: 12px; }
+  .tl-dot { width: 26px; height: 26px; border-radius: 50%; margin: 0 auto 4px; line-height: 26px; color: #fff; background: #94a3b8; }
+  .tl-dot.failed { background: #dc2626; } .tl-dot.succeeded { background: #16a34a; } .tl-dot.running { background: #2563eb; }
+  .card { border: 1px solid #dde2ec; border-radius: 8px; padding: 12px; margin: 10px 0; }
+  .card h4 { margin: 0 0 6px; }
+  pre.log { background: #0b1220; color: #d1e7ff; padding: 10px; border-radius: 6px; font-size: 12px; white-space: pre-wrap; max-height: 220px; overflow: auto; }
+  .diff-add { color: #15803d; } .diff-del { color: #b91c1c; }
+  .gate { border-radius: 8px; padding: 14px; margin: 12px 0; display: none; }
+  .gate.show { display: block; }
+  .gate1 { border: 2px solid #16a34a; background: #f0fdf4; }
+  .gate1 button.approve { background: #16a34a; color: #fff; border: 0; padding: 10px 18px; border-radius: 6px; cursor: pointer; font-weight: 700; }
+  .gate1 button.reject { background: #6b7280; color: #fff; border: 0; padding: 10px 14px; border-radius: 6px; cursor: pointer; }
+  .gate2 { border: 3px solid #dc2626; background: #fef2f2; }
+  .gate2 button.approve { background: #dc2626; color: #fff; border: 0; padding: 10px 18px; border-radius: 6px; cursor: pointer; font-weight: 700; }
+  .gate2 button.approve:disabled { background: #fca5a5; cursor: not-allowed; }
+  .gate2 button.reject { background: #fff; border: 2px solid #dc2626; color: #dc2626; padding: 8px 14px; border-radius: 6px; cursor: pointer; font-weight: 700; }
+  .verify { border-radius: 8px; padding: 14px; margin: 12px 0; display: none; }
+  .verify.show { display: block; }
+  .verify.passed { background: #dcfce7; border: 2px solid #16a34a; }
+  .verify.unverified { background: #fef9c3; border: 2px solid #ca8a04; }
+  table { border-collapse: collapse; width: 100%; font-size: 13px; }
+  th, td { border: 1px solid #dde2ec; padding: 6px 8px; text-align: left; }
+  .kpis { display: flex; gap: 10px; flex-wrap: wrap; }
+  .kpi { flex: 1; min-width: 130px; background: #eef3ff; border: 1px solid #c9d6f5; border-radius: 8px; padding: 10px; }
+  .kpi .v { font-size: 20px; font-weight: 700; }
+  .watermark { display: none; background: #b45309; color: #fff; font-weight: 800; letter-spacing: 2px; padding: 4px 12px; border-radius: 4px; }
+  .watermark.show { display: inline-block; }
+  .muted { color: #5a6577; font-size: 13px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>TrainPilot-Local</h1>
+  <span class="sub">An agent that repairs KubeRay training runs &mdash; plan, diagnose, repair, verify. Nothing irreversible happens without a human.</span>
+</header>
+<nav>
+  <button data-view="console" class="active">Run Console</button>
+  <button data-view="failures">Failure Memory</button>
+  <button data-view="benchmark">Benchmark Dashboard</button>
+  <button data-view="replay">Replay</button>
+</nav>
+<main>
+
+<!-- ============ View 1: Run Console ============ -->
+<section id="view-console" class="view active">
+  <div class="session-bar">
+    Session: <input id="session-id" style="width:220px;display:inline-block" value="demo-session">
+    <div id="session-summary" class="muted">No previous run in this session yet. Follow-up requests will carry the previous run's summary as context.</div>
+  </div>
+
+  <h3>Request</h3>
+  <label for="request-text">What should the agent do?</label>
+  <textarea id="request-text" rows="2">Fine-tune DistilBERT on SST-2 with a RayJob on Kind, two CPU workers</textarea>
+  <div class="row">
+    <div><label>Model</label>
+      <select id="f-model"><option>distilbert-base-uncased</option></select></div>
+    <div><label>Dataset</label>
+      <select id="f-dataset"><option>sst2</option></select></div>
+    <div><label>Workers</label><input id="f-workers" type="number" value="2"></div>
+    <div><label>Epochs</label><input id="f-epochs" type="number" value="1"></div>
+    <div><label>Batch / worker</label><input id="f-batch" type="number" value="8"></div>
+  </div>
+  <p><button class="primary" id="btn-run">Start run</button>
+     <span id="run-status" class="muted"></span></p>
+  <div id="plan-summary" class="card" style="display:none"></div>
+
+  <h3>Live Plan</h3>
+  <div class="nodes" id="plan-nodes"></div>
+
+  <h3>Attempts</h3>
+  <div class="timeline" id="timeline"></div>
+  <div id="attempt-cards"></div>
+
+  <div id="gate1" class="gate gate1">
+    <h4>Gate 1 &mdash; Approve first launch</h4>
+    <p id="gate1-desc"></p>
+    <button class="approve" id="gate1-approve">Approve Launch</button>
+    <button class="reject" id="gate1-reject">Reject &amp; Stop</button>
+  </div>
+  <div id="gate2" class="gate gate2">
+    <h4>Gate 2 &mdash; Irreversible action</h4>
+    <p id="gate2-desc"></p>
+    <div id="gate2-files"></div>
+    <label style="font-weight:400"><input type="checkbox" id="gate2-confirm" style="width:auto">
+      I understand this cannot be undone</label>
+    <p><button class="approve" id="gate2-approve" disabled>Approve Irreversible Action</button>
+       <button class="reject" id="gate2-reject">Reject</button></p>
+  </div>
+
+  <div id="verify" class="verify"></div>
+</section>
+
+<!-- ============ View 2: Failure Memory ============ -->
+<section id="view-failures" class="view">
+  <h3>Failure Memory Viewer</h3>
+  <p class="muted">Every diagnosis the agent has recorded. The critic consults this
+  memory on later runs, but still needs fresh log evidence before reusing a fix.</p>
+  <input id="failure-search" placeholder="Filter by fault label...">
+  <table><thead><tr><th>Fault label</th><th>Root cause</th><th>Evidence</th>
+  <th>Fix</th><th>Run</th></tr></thead><tbody id="failure-rows"></tbody></table>
+</section>
+
+<!-- ============ View 3: Benchmark Dashboard ============ -->
+<section id="view-benchmark" class="view">
+  <h3>Benchmark Dashboard</h3>
+  <p class="muted" id="benchmark-note">Numbers come from the Section D evaluation
+  harness (reports/final/summary.json). The webapp never recomputes them.</p>
+  <div class="kpis" id="kpis"></div>
+  <canvas id="family-chart" height="140"></canvas>
+  <pre id="benchmark-raw" class="log" style="display:none"></pre>
+</section>
+
+<!-- ============ View 4: Replay ============ -->
+<section id="view-replay" class="view">
+  <h3>Replay <span id="replay-watermark" class="watermark">REPLAY</span></h3>
+  <p class="muted">Replays a finished run's persisted events at 8x speed. No cluster is touched.</p>
+  <div class="row">
+    <div><label>Finished run</label><select id="replay-run"></select></div>
+    <div style="flex:0"><label>&nbsp;</label><button class="primary" id="btn-replay">Play Replay</button></div>
+  </div>
+  <div class="timeline" id="replay-timeline"></div>
+  <div id="replay-cards"></div>
+</section>
+
+</main>
+<script>
+"use strict";
+const NODES = ["intake_profiler","planner","coder","preflight_validator","approval_gate",
+  "executor","monitor_poller","log_collector","critic","repair_router","verifier","final_reporter"];
+let currentRunId = null, liveSource = null, replaySource = null;
+
+// ---- view switching ----
+document.querySelectorAll("nav button").forEach(btn => {
+  btn.addEventListener("click", () => {
+    document.querySelectorAll("nav button").forEach(b => b.classList.remove("active"));
+    document.querySelectorAll(".view").forEach(v => v.classList.remove("active"));
+    btn.classList.add("active");
+    document.getElementById("view-" + btn.dataset.view).classList.add("active");
+    if (btn.dataset.view === "failures") loadFailures();
+    if (btn.dataset.view === "benchmark") loadBenchmark();
+    if (btn.dataset.view === "replay") loadRunList();
+  });
+});
+
+// ---- plan view ----
+const planEl = document.getElementById("plan-nodes");
+NODES.forEach(n => {
+  const s = document.createElement("span");
+  s.className = "node"; s.id = "node-" + n; s.textContent = n;
+  planEl.appendChild(s);
+});
+function setNode(name, cls) {
+  const el = document.getElementById("node-" + name);
+  if (el) el.className = "node " + cls;
+}
+
+// ---- attempt rendering (shared by live + replay) ----
+function renderAttempt(scope, payload) {
+  const tl = document.getElementById(scope + "-timeline") || document.getElementById("timeline");
+  const cards = document.getElementById(scope === "replay" ? "replay-cards" : "attempt-cards");
+  const dotId = scope + "-dot-" + payload.attempt;
+  let dot = document.getElementById(dotId);
+  if (!dot) {
+    const wrap = document.createElement("div"); wrap.className = "tl-point";
+    wrap.innerHTML = '<div class="tl-dot" id="' + dotId + '">' + payload.attempt +
+      '</div><div>attempt ' + payload.attempt + '</div><div class="muted"></div>';
+    tl.appendChild(wrap); dot = document.getElementById(dotId);
+  }
+  dot.className = "tl-dot " + (payload.status || "running");
+  dot.parentElement.lastElementChild.textContent =
+    (payload.status || "") + (payload.duration_seconds ? " · " + payload.duration_seconds + "s" : "");
+  if (payload.status && payload.status !== "running") {
+    const card = document.createElement("div"); card.className = "card";
+    let fixHtml = "";
+    if (payload.fix && Object.keys(payload.fix).length) {
+      fixHtml = "<h5>Fix</h5>" + Object.entries(payload.fix).map(([k, v]) =>
+        '<div class="diff-add">+ ' + k + ": " + v + "</div>").join("");
+    }
+    card.innerHTML = "<h4>Attempt " + payload.attempt + " — " + payload.status + "</h4>" +
+      '<pre class="log"></pre>' + fixHtml +
+      '<div class="muted">Next step: ' +
+      (payload.status === "succeeded" ? "verify" : "diagnose &amp; retry") + "</div>";
+    card.querySelector("pre").textContent = payload.logs || "";
+    cards.appendChild(card);
+  }
+}
+
+// ---- verification panel ----
+async function showVerification(runId) {
+  const r = await fetch("/api/runs/" + runId);
+  if (!r.ok) return;
+  const data = await r.json();
+  const v = data.verification || {};
+  const panel = document.getElementById("verify");
+  const passed = v.passed === true;
+  const acc = (v.validation_accuracy === null || v.validation_accuracy === undefined)
+    ? "n/a" : v.validation_accuracy;
+  panel.className = "verify show " + (passed ? "passed" : "unverified");
+  panel.innerHTML = "<h4>Final Verification — " + (passed ? "VERIFIED" : "UNVERIFIED") + "</h4>" +
+    "<div>" + (v.checkpoint_exists ? "✓" : "✗") + " Checkpoint exists</div>" +
+    "<div>" + (v.checkpoint_loadable ? "✓" : "✗") + " Checkpoint loadable</div>" +
+    "<div>" + (v.validation_accuracy !== null && v.validation_accuracy !== undefined ? "✓" : "✗") +
+      " Validation accuracy: " + acc + "</div>" +
+    "<div>" + (v.config_honors_request ? "✓" : "✗") + " Config honors the original request</div>" +
+    (passed ? "" : '<p><strong>UNVERIFIED</strong> — at least one check did not pass, so success is not claimed.</p>');
+}
+
+// ---- gates ----
+function showGate(gate, action) {
+  const el = document.getElementById(gate === "gate1_first_launch" ? "gate1" : "gate2");
+  el.classList.add("show");
+  document.getElementById(gate === "gate1_first_launch" ? "gate1-desc" : "gate2-desc")
+    .textContent = action.description || "";
+  if (gate !== "gate1_first_launch" && action.args && action.args.paths) {
+    document.getElementById("gate2-files").innerHTML =
+      "<strong>Will delete:</strong><ul>" + action.args.paths.map(p => "<li>" + p + "</li>").join("") +
+      "</ul><div>Total: " + (action.args.total_mb || "?") + " MB</div>";
+  }
+}
+function hideGate(gate) {
+  document.getElementById(gate === "gate1_first_launch" ? "gate1" : "gate2").classList.remove("show");
+}
+async function decide(gate, approve) {
+  await fetch("/api/runs/" + currentRunId + "/approve", {
+    method: "POST", headers: {"Content-Type": "application/json"},
+    body: JSON.stringify({gate: gate, approve: approve, actor: "human"})
+  });
+  hideGate(gate);
+}
+document.getElementById("gate1-approve").onclick = () => decide("gate1_first_launch", true);
+document.getElementById("gate1-reject").onclick = () => decide("gate1_first_launch", false);
+document.getElementById("gate2-reject").onclick = () => decide("gate2_irreversible", false);
+document.getElementById("gate2-confirm").addEventListener("change", e => {
+  document.getElementById("gate2-approve").disabled = !e.target.checked;
+});
+document.getElementById("gate2-approve").onclick = () => decide("gate2_irreversible", true);
+
+// ---- live run ----
+function handleEvent(ev, scope) {
+  const p = ev.payload || {};
+  if (ev.type === "node_started") setNode(p.node, "running");
+  if (ev.type === "node_finished") setNode(p.node, p.status === "fail" ? "fail" : "ok");
+  if (ev.type === "plan_ready") {
+    const el = document.getElementById("plan-summary");
+    el.style.display = "block";
+    el.innerHTML = "<h4>Plan</h4><div></div>";
+    el.querySelector("div").textContent = p.summary || JSON.stringify(p.spec || {});
+  }
+  if (ev.type === "attempt_started") renderAttempt(scope, {attempt: p.attempt, status: "running"});
+  if (ev.type === "attempt_finished") renderAttempt(scope, p);
+  if (ev.type === "approval_required" && scope === "live") showGate(p.gate, p.action || {});
+  if (ev.type === "approval_decided" && scope === "live") hideGate(p.gate);
+  if (ev.type === "run_finished" && scope === "live") {
+    document.getElementById("run-status").textContent =
+      "Run finished — success: " + p.success;
+    showVerification(currentRunId);
+    refreshSessionSummary();
+  }
+}
+document.getElementById("btn-run").addEventListener("click", async () => {
+  const body = {
+    request: document.getElementById("request-text").value,
+    session_id: document.getElementById("session-id").value || "default",
+    fields: {
+      model_name: document.getElementById("f-model").value,
+      dataset: document.getElementById("f-dataset").value,
+      num_workers: Number(document.getElementById("f-workers").value),
+      epochs: Number(document.getElementById("f-epochs").value),
+      per_worker_batch_size: Number(document.getElementById("f-batch").value)
+    }
+  };
+  const r = await fetch("/api/runs", {method: "POST",
+    headers: {"Content-Type": "application/json"}, body: JSON.stringify(body)});
+  const data = await r.json();
+  currentRunId = data.run_id;
+  document.getElementById("run-status").textContent = "Run " + currentRunId + " started";
+  document.getElementById("attempt-cards").innerHTML = "";
+  document.getElementById("timeline").innerHTML = "";
+  document.getElementById("verify").className = "verify";
+  NODES.forEach(n => setNode(n, ""));
+  if (liveSource) liveSource.close();
+  liveSource = new EventSource("/api/runs/" + currentRunId + "/events");
+  liveSource.onmessage = e => handleEvent(JSON.parse(e.data), "live");
+});
+async function refreshSessionSummary() {
+  // The server attaches the summary to the next run; here we just note it.
+  document.getElementById("session-summary").textContent =
+    "Previous run in this session finished. Its summary will be passed as context to the next run in this session.";
+}
+
+// ---- failure memory ----
+async function loadFailures() {
+  const r = await fetch("/api/failures");
+  const data = await r.json();
+  const q = (document.getElementById("failure-search").value || "").toLowerCase();
+  const rows = (data.failures || []).filter(f =>
+    !q || (f.fault_label || "").toLowerCase().includes(q));
+  document.getElementById("failure-rows").innerHTML = rows.map(f =>
+    "<tr><td>" + (f.fault_label || "") + "</td><td>" + (f.root_cause_code || "") +
+    "</td><td>" + ((f.evidence || []).join("; ")) + "</td><td>" + (f.fix_code || "") +
+    "</td><td>" + (f.run_id || "") + "</td></tr>").join("");
+}
+document.getElementById("failure-search").addEventListener("input", loadFailures);
+
+// ---- benchmark ----
+async function loadBenchmark() {
+  const r = await fetch("/api/benchmark");
+  const data = await r.json();
+  const kpis = document.getElementById("kpis");
+  if (data.state === "empty") {
+    document.getElementById("benchmark-note").textContent = data.message;
+    kpis.innerHTML = Object.keys(data.kpis || {}).map(k =>
+      '<div class="kpi"><div>' + k.replaceAll("_", " ") + '</div><div class="v">—</div></div>').join("");
+    return;
+  }
+  const s = data.summary || {};
+  const cards = [
+    ["Held-out success rate", s.held_out_success_rate],
+    ["Repair within 3 attempts", s.repair_within_3_attempts],
+    ["Unsafe executions", s.unsafe_executions],
+    ["False success reports", s.false_success_reports],
+    ["Avg attempts", s.avg_attempts],
+    ["Avg wall time (s)", s.avg_wall_time_seconds],
+    ["API cost / run", s.api_cost_per_run]
+  ];
+  kpis.innerHTML = cards.map(([k, v]) =>
+    '<div class="kpi"><div>' + k + '</div><div class="v">' +
+    (v === null || v === undefined ? "—" : v) + "</div></div>").join("");
+  if (window.Chart && s.per_family) {
+    new Chart(document.getElementById("family-chart"), {
+      type: "bar",
+      data: {labels: Object.keys(s.per_family),
+             datasets: [{label: "success rate", data: Object.values(s.per_family)}]},
+      options: {scales: {y: {min: 0, max: 1}}}
+    });
+  }
+}
+
+// ---- replay ----
+async function loadRunList() {
+  const r = await fetch("/api/runs");
+  const data = await r.json();
+  const sel = document.getElementById("replay-run");
+  sel.innerHTML = (data.runs || []).map(run =>
+    '<option value="' + run.run_id + '">' + run.run_id + " (" + run.status + ")</option>").join("");
+}
+document.getElementById("btn-replay").addEventListener("click", () => {
+  const runId = document.getElementById("replay-run").value;
+  if (!runId) return;
+  document.getElementById("replay-cards").innerHTML = "";
+  document.getElementById("replay-timeline").innerHTML = "";
+  if (replaySource) replaySource.close();
+  replaySource = new EventSource("/api/runs/" + runId + "/replay");
+  replaySource.onmessage = e => {
+    const ev = JSON.parse(e.data);
+    if (ev.type === "replay_started") document.getElementById("replay-watermark").classList.add("show");
+    if (ev.type === "replay_finished") document.getElementById("replay-watermark").classList.remove("show");
+    handleEvent(ev, "replay");
+  };
+});
+</script>
+</body>
+</html>

@@ -1,0 +1,19 @@
+# TrainPilot-Local Run Report
+
+- Run ID: {{ run_id }}
+- Outcome: {{ outcome }}
+- Attempts used: {{ attempts }} of {{ max_attempts }}
+- Claimed success: {{ claimed_success }}
+- Verification passed: {{ verification_passed }}
+
+## Final message
+
+{{ final_message }}
+
+## Diagnoses
+
+{% for record in diagnosis_records -%}
+- Attempt {{ loop.index }}: {{ record.fault_family }} / {{ record.root_cause_code }} -> fix {{ record.proposed_fix_code }}
+{% else -%}
+- None: the run needed no repair.
+{% endfor %}

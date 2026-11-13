@@ -1,0 +1,47 @@
+id: data-lr-too-high
+family: data_training
+user_request: Please fine-tune DistilBERT on SST-2 with Ray Train on my Kind cluster,
+  2 CPU workers, and give me the checkpoint and validation accuracy.
+injection: learning_rate set to 5e-1 (25,000x the canonical 2e-5); the loss explodes
+  within a few steps and becomes NaN.
+log_signature: TRAIN_LOSS_NAN
+expected_log_signatures:
+- '"loss": nan'
+- loss became nan
+ground_truth:
+  fault_family: data_or_training_error
+  root_cause_code: TRAIN_LOSS_NAN
+expected_keywords:
+- nan
+- learning rate
+- loss
+resource_limits:
+  num_workers: 2
+  cpu_per_worker: 2
+  memory_per_worker: 2Gi
+  max_memory_per_worker: 3Gi
+  timeout_minutes: 25
+config_overrides:
+  backend: gloo
+  per_worker_batch_size: 8
+  gradient_accumulation_steps: 2
+  num_workers: 2
+  resources_per_worker_memory: 2Gi
+  epochs: 1
+  max_steps: 40
+  learning_rate: 0.5
+  train_subsample: 1024
+  val_subsample: 256
+  max_length: 64
+  seed: 42
+  fault: loss_nan
+correct_repair:
+  learning_rate: 2.0e-05
+wrong_repair:
+  knob: max_steps
+  change: cut to 1 so the run ends before diverging
+  why_wrong: Produces a fake success with global_step < 10; the cause is the learning
+    rate.
+accuracy_threshold: 0.7
+max_attempts: 3
+clean_expected: false

@@ -1,0 +1,25 @@
+# KubeRay operator Helm values (design B-1.4).
+#
+# Pinned versions (do not float):
+#   chart:            kuberay-operator 1.3.0
+#                     (pinned at install time: helm install --version 1.3.0)
+#   operator image:   quay.io/kuberay/operator:v1.3.0
+#   Ray version:      2.41.0 (worker image rayproject/ray:2.41.0-py310-cpu)
+#
+# Install:
+#   helm install kuberay-operator kuberay/kuberay-operator \
+#     --version 1.3.0 -n kuberay-system --create-namespace \
+#     -f infra/kuberay/values.yaml --wait --timeout 5m
+image:
+  repository: quay.io/kuberay/operator
+  tag: v1.3.0
+  pullPolicy: IfNotPresent
+# The operator itself gets a small, fixed resource budget so it can never
+# starve the training pods on a laptop-sized cluster.
+resources:
+  requests:
+    cpu: "100m"
+    memory: "256Mi"
+  limits:
+    cpu: "500m"
+    memory: "512Mi"

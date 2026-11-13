@@ -1,0 +1,72 @@
+# Resource and network enforcement for trainpilot-jobs (design B-5.3).
+# These objects are created by a human and the agent has no permission
+# to modify them, so the caps hold even if a tool validator has a bug.
+apiVersion: v1
+kind: ResourceQuota
+metadata:
+  name: trainpilot-quota
+  namespace: trainpilot-jobs
+spec:
+  hard:
+    requests.cpu: "4"
+    requests.memory: "6Gi"
+    limits.cpu: "6"
+    limits.memory: "8Gi"
+    pods: "20"
+    count/rayjobs.ray.io: "3"
+---
+apiVersion: v1
+kind: LimitRange
+metadata:
+  name: trainpilot-limits
+  namespace: trainpilot-jobs
+spec:
+  limits:
+    - type: Container
+      default:
+        cpu: "2"
+        memory: "3Gi"
+      defaultRequest:
+        cpu: "500m"
+        memory: "512Mi"
+      max:
+        cpu: "2"
+        memory: "3Gi"
+      min:
+        cpu: "250m"
+        memory: "128Mi"
+---
+# Default-deny egress. Only DNS and outbound 443 are allowed.
+# Known limitation (design B-5.3): the default Kind CNI cannot filter by
+# FQDN, so the host allowlist (huggingface.co, pypi.org, ...) is NOT
+# enforced here. The real control is that models and datasets are baked
+# into the image / workspace at build time and training runs with
+# HF_HUB_OFFLINE=1, so training pods do not need egress at all.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: trainpilot-egress
+  namespace: trainpilot-jobs
+spec:
+  podSelector: {}
+  policyTypes:
+    - Egress
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+          podSelector:
+            matchLabels:
+              k8s-app: kube-dns
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+      ports:
+        - protocol: TCP
+          port: 443

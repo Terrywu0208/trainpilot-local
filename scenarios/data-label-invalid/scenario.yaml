@@ -1,0 +1,48 @@
+id: data-label-invalid
+family: data_training
+user_request: Please fine-tune DistilBERT on SST-2 with Ray Train on my Kind cluster,
+  2 CPU workers, and give me the checkpoint and validation accuracy.
+injection: The tokenize/set_format step drops the label column, so batches carry -1
+  / None labels and the first step fails in the loss.
+log_signature: DATA_LABEL_INVALID
+expected_log_signatures:
+- invalid label
+- Target -1 is out of bounds
+ground_truth:
+  fault_family: data_or_training_error
+  root_cause_code: DATA_LABEL_INVALID
+expected_keywords:
+- label
+- '-1'
+- invalid
+resource_limits:
+  num_workers: 2
+  cpu_per_worker: 2
+  memory_per_worker: 2Gi
+  max_memory_per_worker: 3Gi
+  timeout_minutes: 25
+config_overrides:
+  backend: gloo
+  per_worker_batch_size: 8
+  gradient_accumulation_steps: 2
+  num_workers: 2
+  resources_per_worker_memory: 2Gi
+  epochs: 1
+  max_steps: 40
+  learning_rate: 2.0e-05
+  train_subsample: 1024
+  val_subsample: 256
+  max_length: 64
+  seed: 42
+  fault: label_invalid
+correct_repair:
+  repair_flags:
+    sanitize_labels: true
+wrong_repair:
+  knob: epochs
+  change: train longer
+  why_wrong: More epochs on missing labels changes nothing; the data pipeline must
+    be fixed.
+accuracy_threshold: 0.7
+max_attempts: 3
+clean_expected: false

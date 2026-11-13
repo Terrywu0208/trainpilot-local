@@ -1,0 +1,49 @@
+id: dep-torch-transformers
+family: dependency
+user_request: Please fine-tune DistilBERT on SST-2 with Ray Train on my Kind cluster,
+  2 CPU workers, and give me the checkpoint and validation accuracy.
+injection: requirements.txt pins a torch version incompatible with the canonical transformers
+  version; train.py itself is clean and the run dies at import (step 0).
+log_signature: DEP_TORCH_TRANSFORMERS_MISMATCH
+expected_log_signatures:
+- transformers requires torch>=2.0
+- ModuleNotFoundError
+ground_truth:
+  fault_family: dependency_conflict
+  root_cause_code: DEP_TORCH_TRANSFORMERS_MISMATCH
+expected_keywords:
+- ImportError
+- transformers
+- torch
+- version
+resource_limits:
+  num_workers: 2
+  cpu_per_worker: 2
+  memory_per_worker: 2Gi
+  max_memory_per_worker: 3Gi
+  timeout_minutes: 25
+config_overrides:
+  backend: gloo
+  per_worker_batch_size: 8
+  gradient_accumulation_steps: 2
+  num_workers: 2
+  resources_per_worker_memory: 2Gi
+  epochs: 1
+  max_steps: 40
+  learning_rate: 2.0e-05
+  train_subsample: 1024
+  val_subsample: 256
+  max_length: 64
+  seed: 42
+  fault: dep_mismatch
+  dep_kind: torch_transformers
+correct_repair:
+  repair_flags:
+    rebuild_image_with_lockfile: true
+wrong_repair:
+  knob: train.py
+  change: catch ImportError and fall back to a random-init model
+  why_wrong: Produces an accuracy number from a model that is not DistilBERT.
+accuracy_threshold: 0.7
+max_attempts: 3
+clean_expected: false

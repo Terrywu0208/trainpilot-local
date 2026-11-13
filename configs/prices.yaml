@@ -1,0 +1,28 @@
+# Price table for API cost accounting (design section D.8).
+#
+# SOURCE NOTE: the values below are PLACEHOLDERS captured when this file was
+# created (2026-11-12). They must be re-checked against the official OpenAI
+# pricing page on the day the final experiment matrix starts, and the
+# effective_date / price_table_version bumped at that moment. Runs record the
+# price_table_version they were costed with; historical runs are never
+# re-costed when prices change.
+#
+# The stub provider used for all offline work in this repository costs 0.
+price_table_version: "2026-11-12-placeholder"
+effective_date: "2026-11-12"
+currency: "USD"
+unit: "per 1M tokens"
+
+models:
+  gpt-5-mini:
+    input_per_1m: 0.25
+    cached_input_per_1m: 0.025
+    output_per_1m: 2.00
+  gpt-5-nano:
+    input_per_1m: 0.05
+    cached_input_per_1m: 0.005
+    output_per_1m: 0.40
+  stub:
+    input_per_1m: 0.0
+    cached_input_per_1m: 0.0
+    output_per_1m: 0.0

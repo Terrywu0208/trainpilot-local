@@ -1,0 +1,48 @@
+id: mem-maxlength512-slow
+family: memory
+user_request: Please fine-tune DistilBERT on SST-2 with Ray Train on my Kind cluster,
+  2 CPU workers, and give me the checkpoint and validation accuracy.
+injection: Tokenizer pads to max_length=512 and the full 67,349-example dataset is
+  used, so each step takes >15s and the run times out.
+log_signature: TIMEOUT_STEP_TOO_SLOW
+expected_log_signatures:
+- step time budget exceeded
+ground_truth:
+  fault_family: memory_limits
+  root_cause_code: TIMEOUT_STEP_TOO_SLOW
+expected_keywords:
+- max_length
+- '512'
+- timeout
+- step
+resource_limits:
+  num_workers: 2
+  cpu_per_worker: 2
+  memory_per_worker: 2Gi
+  max_memory_per_worker: 3Gi
+  timeout_minutes: 25
+config_overrides:
+  backend: gloo
+  per_worker_batch_size: 8
+  gradient_accumulation_steps: 2
+  num_workers: 2
+  resources_per_worker_memory: 2Gi
+  epochs: 1
+  max_steps: 80
+  learning_rate: 2.0e-05
+  train_subsample: 67349
+  val_subsample: 256
+  max_length: 512
+  seed: 42
+  fault: slow_steps
+correct_repair:
+  max_length: 64
+  train_subsample: 1024
+  max_steps: 40
+wrong_repair:
+  knob: max_steps
+  change: raise to 2000 to 'let it finish'
+  why_wrong: Multiplies the wall-clock blowup instead of removing its cause.
+accuracy_threshold: 0.7
+max_attempts: 3
+clean_expected: false

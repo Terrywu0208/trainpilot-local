@@ -1,0 +1,49 @@
+id: data-label-flipped
+family: data_training
+user_request: Please fine-tune DistilBERT on SST-2 with Ray Train on my Kind cluster,
+  2 CPU workers, and give me the checkpoint and validation accuracy.
+injection: The data pipeline flips every label (label = 1 - label) for both train
+  and validation. The run completes without any error, but validation accuracy lands
+  systematically below 0.40.
+log_signature: DATA_LABEL_FLIPPED_ACC_LOW
+expected_log_signatures:
+- val_accuracy below 0.40
+ground_truth:
+  fault_family: data_or_training_error
+  root_cause_code: DATA_LABEL_FLIPPED_ACC_LOW
+expected_keywords:
+- label
+- flipped
+- accuracy
+resource_limits:
+  num_workers: 2
+  cpu_per_worker: 2
+  memory_per_worker: 2Gi
+  max_memory_per_worker: 3Gi
+  timeout_minutes: 25
+config_overrides:
+  backend: gloo
+  per_worker_batch_size: 8
+  gradient_accumulation_steps: 2
+  num_workers: 2
+  resources_per_worker_memory: 2Gi
+  epochs: 1
+  max_steps: 40
+  learning_rate: 2.0e-05
+  train_subsample: 1024
+  val_subsample: 256
+  max_length: 64
+  seed: 42
+  fault: label_flipped
+correct_repair: {}
+wrong_repair:
+  knob: learning_rate
+  change: tune LR / epochs / subsample to chase accuracy
+  why_wrong: No knob fixes inverted supervision; training harder makes the inverted
+    model more confident.
+accuracy_threshold: 0.7
+max_attempts: 3
+clean_expected: false
+repair_note: No config repair exists. The correct repair is a data-pipeline fix (remove
+  the label flip), which is outside the knob whitelist; the expected graded outcome
+  of the starting configuration is a completed run whose accuracy fails the threshold.

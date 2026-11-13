@@ -1,0 +1,83 @@
+id: demo-two-stage
+family: multi
+user_request: Please fine-tune DistilBERT on SST-2 with Ray Train on my Kind cluster,
+  2 CPU workers, and give me the checkpoint and validation accuracy.
+injection: 'Two-stage staged demo: stage 1 carries the GPU-only nccl fault; after
+  the backend repair, stage 2 carries the batch-32 OOM fault (the batch=32 default
+  is swapped in by the harness between attempts - this must be disclosed in the report,
+  not claimed as the agent''s own error).'
+log_signature: NCCL_ON_CPU then OOMKILLED_137
+expected_log_signatures:
+- NCCL is not available
+- OOMKilled
+ground_truth:
+- stage: 1
+  fault_family: gpu_only_code
+  root_cause_code: NCCL_ON_CPU
+- stage: 2
+  fault_family: memory_limits
+  root_cause_code: OOMKILLED_137
+expected_keywords:
+- NCCL
+- gloo
+- OOMKilled
+- batch
+- accumulation
+resource_limits:
+  num_workers: 2
+  cpu_per_worker: 2
+  memory_per_worker: 2Gi
+  max_memory_per_worker: 3Gi
+  timeout_minutes: 25
+stages:
+- stage: 1
+  fault: nccl_on_cpu
+  config_overrides:
+    backend: nccl
+    per_worker_batch_size: 8
+    gradient_accumulation_steps: 2
+    num_workers: 2
+    resources_per_worker_memory: 2Gi
+    epochs: 1
+    max_steps: 40
+    learning_rate: 2.0e-05
+    train_subsample: 1024
+    val_subsample: 256
+    max_length: 64
+    seed: 42
+    fault: nccl_on_cpu
+  correct_repair:
+    backend: gloo
+- stage: 2
+  fault: oom
+  config_overrides:
+    backend: gloo
+    per_worker_batch_size: 32
+    gradient_accumulation_steps: 1
+    num_workers: 2
+    resources_per_worker_memory: 2Gi
+    epochs: 1
+    max_steps: 40
+    learning_rate: 2.0e-05
+    train_subsample: 1024
+    val_subsample: 256
+    max_length: 64
+    seed: 42
+    fault: oom
+  correct_repair:
+    per_worker_batch_size: 4
+    gradient_accumulation_steps: 4
+correct_repair:
+  stage_1:
+    backend: gloo
+  stage_2:
+    per_worker_batch_size: 4
+    gradient_accumulation_steps: 4
+wrong_repair:
+  knob: resources_per_worker_memory
+  change: raise memory instead of fixing backend and batch
+  why_wrong: 'Fixes neither stage: nccl still cannot init on CPU, and 8Gi exceeds
+    the scenario limit.'
+accuracy_threshold: 0.7
+max_attempts: 3
+clean_expected: false

@@ -1,0 +1,49 @@
+id: dep-numpy2-abi
+family: dependency
+user_request: Please fine-tune DistilBERT on SST-2 with Ray Train on my Kind cluster,
+  2 CPU workers, and give me the checkpoint and validation accuracy.
+injection: requirements.txt pins numpy==2.x while the rest of the canonical stack
+  is built against numpy<2 (binary ABI conflict at import).
+log_signature: DEP_NUMPY2_ABI
+expected_log_signatures:
+- compiled using NumPy 1.x cannot be run in NumPy 2.x
+- numpy.core.multiarray failed to import
+ground_truth:
+  fault_family: dependency_conflict
+  root_cause_code: DEP_NUMPY2_ABI
+expected_keywords:
+- NumPy
+- ABI
+- import
+resource_limits:
+  num_workers: 2
+  cpu_per_worker: 2
+  memory_per_worker: 2Gi
+  max_memory_per_worker: 3Gi
+  timeout_minutes: 25
+config_overrides:
+  backend: gloo
+  per_worker_batch_size: 8
+  gradient_accumulation_steps: 2
+  num_workers: 2
+  resources_per_worker_memory: 2Gi
+  epochs: 1
+  max_steps: 40
+  learning_rate: 2.0e-05
+  train_subsample: 1024
+  val_subsample: 256
+  max_length: 64
+  seed: 42
+  fault: dep_mismatch
+  dep_kind: numpy2_abi
+correct_repair:
+  repair_flags:
+    rebuild_image_with_lockfile: true
+wrong_repair:
+  knob: requirements.txt
+  change: upgrade every other package to NumPy 2 compatible versions
+  why_wrong: A cascading upgrade disturbs the verified torch/ray combination; the
+    minimal correct fix is restoring the lockfile combination.
+accuracy_threshold: 0.7
+max_attempts: 3
+clean_expected: false

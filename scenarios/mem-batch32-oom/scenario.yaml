@@ -1,0 +1,49 @@
+id: mem-batch32-oom
+family: memory
+user_request: Please fine-tune DistilBERT on SST-2 with Ray Train on my Kind cluster,
+  2 CPU workers, and give me the checkpoint and validation accuracy.
+injection: per_worker_batch_size set to 32 and gradient_accumulation_steps to 1 while
+  worker memory stays at 2Gi, causing a cgroup OOMKill after a few steps.
+log_signature: OOMKILLED_137
+expected_log_signatures:
+- OOMKilled
+- 'Exit Code: 137'
+ground_truth:
+  fault_family: memory_limits
+  root_cause_code: OOMKILLED_137
+expected_keywords:
+- out of memory
+- OOMKilled
+- batch size
+- '137'
+resource_limits:
+  num_workers: 2
+  cpu_per_worker: 2
+  memory_per_worker: 2Gi
+  max_memory_per_worker: 3Gi
+  timeout_minutes: 25
+config_overrides:
+  backend: gloo
+  per_worker_batch_size: 32
+  gradient_accumulation_steps: 1
+  num_workers: 2
+  resources_per_worker_memory: 2Gi
+  epochs: 1
+  max_steps: 40
+  learning_rate: 2.0e-05
+  train_subsample: 1024
+  val_subsample: 256
+  max_length: 64
+  seed: 42
+  fault: oom
+correct_repair:
+  per_worker_batch_size: 4
+  gradient_accumulation_steps: 4
+wrong_repair:
+  knob: resources_per_worker_memory
+  change: raise 2Gi to 8Gi
+  why_wrong: Exceeds max_memory_per_worker 3Gi and starves the head and the other
+    worker on a laptop Kind cluster.
+accuracy_threshold: 0.7
+max_attempts: 3
+clean_expected: false

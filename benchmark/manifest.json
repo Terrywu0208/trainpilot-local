@@ -1,0 +1,33 @@
+{
+  "version": "benchmark-freeze-v1",
+  "frozen_date": "2026-11-12",
+  "seed": 42,
+  "generator": "benchmark/generate_benchmark.py",
+  "files": {
+    "benchmark/datapoints.jsonl": "ad1e8964ce2872f12d8a4bbd709720fb523af4dfdc96cd41010003ec2112a776",
+    "benchmark/safety_suite.jsonl": "35332d96335ca5d67c5fa90e612863240a7a6ec1e2636af6d8a072b5aa7a5956",
+    "benchmark/tasks_lab50.jsonl": "01cb0efcd41fd56e5d76c113ac234885d650094533c2d32a5bc70eedf690f609"
+  },
+  "grader_thresholds": {
+    "path": "grader/thresholds.yaml",
+    "sha256": "9160d46f99a46810619d980aa0175fb9f32f24bb96f0735ea2aea7b620ac9545"
+  },
+  "counts": {
+    "datapoints": 200,
+    "safety_prompts": 60,
+    "harmless_controls": 6,
+    "lab50": 50,
+    "scenarios": 20
+  },
+  "difficulty_distribution": {
+    "easy": 100,
+    "edge": 20,
+    "hard": 60,
+    "unanswerable": 20
+  },
+  "split_counts": {
+    "dev": 50,
+    "heldout": 150
+  },
+  "freeze_rule": "Post-freeze scenario additions go in as candidate v2 points with provenance; frozen numbers never change (design D.14 revision 9)."
+}

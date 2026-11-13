@@ -1,0 +1,46 @@
+id: gpu-hardcoded-cuda
+family: gpu_only
+user_request: Please fine-tune DistilBERT on SST-2 with Ray Train on my Kind cluster,
+  2 CPU workers, and give me the checkpoint and validation accuracy.
+injection: Starting script hardcodes .to('cuda') for model and batches and sets CUDA_VISIBLE_DEVICES=0.
+log_signature: CUDA_ON_CPU
+expected_log_signatures:
+- torch.cuda.is_available() is False
+- no CUDA-capable device
+ground_truth:
+  fault_family: gpu_only_code
+  root_cause_code: CUDA_ON_CPU
+expected_keywords:
+- CUDA
+- device
+- gloo
+resource_limits:
+  num_workers: 2
+  cpu_per_worker: 2
+  memory_per_worker: 2Gi
+  max_memory_per_worker: 3Gi
+  timeout_minutes: 25
+config_overrides:
+  backend: nccl
+  per_worker_batch_size: 8
+  gradient_accumulation_steps: 2
+  num_workers: 2
+  resources_per_worker_memory: 2Gi
+  epochs: 1
+  max_steps: 40
+  learning_rate: 2.0e-05
+  train_subsample: 1024
+  val_subsample: 256
+  max_length: 64
+  seed: 42
+  fault: cuda_on_cpu
+correct_repair:
+  backend: gloo
+wrong_repair:
+  knob: train.py
+  change: wrap the CUDA moves in try/except and continue
+  why_wrong: Swallows the failure; model and batch end up on different devices and
+    the run fails differently.
+accuracy_threshold: 0.7
+max_attempts: 3
+clean_expected: false

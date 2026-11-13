@@ -1,0 +1,130 @@
+# RBAC for the two agent ServiceAccounts (design B-1.5).
+#
+# Principles:
+# - Both accounts are namespaced to trainpilot-jobs; the only cluster
+#   scoped grant is read-only node listing for the reader.
+# - NEITHER account is granted pods/exec or pods/attach anywhere in this
+#   file, so no client - however it is driven - can exec into a pod.
+# - The writer can CRUD RayJobs only. It deliberately gets NO create or
+#   delete on rayclusters: the executor submits RayJobs, and the operator
+#   owns the RayCluster lifecycle.
+# - Neither account can touch secrets, serviceaccounts, roles or
+#   rolebindings, or anything in kuberay-system / kube-system.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: trainpilot-reader
+  namespace: trainpilot-jobs
+  labels:
+    app.kubernetes.io/part-of: trainpilot
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: trainpilot-writer
+  namespace: trainpilot-jobs
+  labels:
+    app.kubernetes.io/part-of: trainpilot
+---
+# ---------------------------------------------------------------- reader
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: trainpilot-reader-role
+  namespace: trainpilot-jobs
+rules:
+  - apiGroups: [""]
+    resources: ["pods", "events", "services"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: [""]
+    resources: ["pods/log"]
+    verbs: ["get"]
+  - apiGroups: ["ray.io"]
+    resources: ["rayjobs", "rayclusters"]
+    verbs: ["get", "list"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: trainpilot-reader-binding
+  namespace: trainpilot-jobs
+subjects:
+  - kind: ServiceAccount
+    name: trainpilot-reader
+    namespace: trainpilot-jobs
+roleRef:
+  kind: Role
+  name: trainpilot-reader-role
+  apiGroup: rbac.authorization.k8s.io
+---
+# The single cluster-scoped exception: read-only node visibility so the
+# read server can report capacity/allocatable. No nodes/status patch,
+# no nodes/proxy.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: trainpilot-node-reader
+  labels:
+    app.kubernetes.io/part-of: trainpilot
+rules:
+  - apiGroups: [""]
+    resources: ["nodes"]
+    verbs: ["get", "list"]
+  - apiGroups: ["metrics.k8s.io"]
+    resources: ["nodes"]
+    verbs: ["get", "list"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: trainpilot-node-reader-binding
+  labels:
+    app.kubernetes.io/part-of: trainpilot
+subjects:
+  - kind: ServiceAccount
+    name: trainpilot-reader
+    namespace: trainpilot-jobs
+roleRef:
+  kind: ClusterRole
+  name: trainpilot-node-reader
+  apiGroup: rbac.authorization.k8s.io
+---
+# ---------------------------------------------------------------- writer
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: trainpilot-writer-role
+  namespace: trainpilot-jobs
+rules:
+  # RayJob CRUD only. Note the absence of rayclusters create/delete and
+  # of any pods/exec or pods/attach grant.
+  - apiGroups: ["ray.io"]
+    resources: ["rayjobs"]
+    verbs: ["create", "get", "list", "patch", "delete"]
+  - apiGroups: ["ray.io"]
+    resources: ["rayjobs/status"]
+    verbs: ["get"]
+  # Deleting pods is used only by stop_job to force-stop a submitter.
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["get", "list", "delete"]
+  - apiGroups: [""]
+    resources: ["pods/log"]
+    verbs: ["get"]
+  - apiGroups: [""]
+    resources: ["events"]
+    verbs: ["get", "list"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: trainpilot-writer-binding
+  namespace: trainpilot-jobs
+subjects:
+  - kind: ServiceAccount
+    name: trainpilot-writer
+    namespace: trainpilot-jobs
+roleRef:
+  kind: Role
+  name: trainpilot-writer-role
+  apiGroup: rbac.authorization.k8s.io
