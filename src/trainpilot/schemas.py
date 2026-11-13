@@ -20,7 +20,7 @@ class ParsedRequest(BaseModel):
     raw_text: str
     model_name: str = "distilbert-base-uncased"
     dataset: str = "sst2"
-    task_type: str = "fine_tune"  # fine_tune | distill
+    task_type: str = "fine_tune"  # fine_tune | pretrain | distill
     num_workers: int = 2
     cpu_only: bool = True
     max_memory_per_worker: str = "3Gi"
@@ -35,6 +35,7 @@ class TrainingSpec(BaseModel):
     model_name: str = "distilbert-base-uncased"
     model_revision: str = "main"
     dataset: str = "sst2"
+    task_type: str = "fine_tune"
     backend: str = "gloo"  # gloo | nccl
     per_worker_batch_size: int = 8
     gradient_accumulation_steps: int = 2
@@ -137,17 +138,24 @@ class VerificationResult(BaseModel):
     checkpoint_exists: bool = False
     checkpoint_loadable: bool = False
     validation_accuracy: Optional[float] = None
+    validation_perplexity: Optional[float] = None
+    baseline_perplexity: Optional[float] = None
     config_honors_request: bool = False
     details: dict[str, Any] = Field(default_factory=dict)
 
     @property
     def passed(self) -> bool:
-        return (
+        base = (
             self.checkpoint_exists
             and self.checkpoint_loadable
             and self.config_honors_request
-            and self.validation_accuracy is not None
         )
+        if self.validation_accuracy is not None:
+            return base
+        if self.validation_perplexity is not None and self.baseline_perplexity:
+            return base and (
+                self.validation_perplexity < 0.9 * self.baseline_perplexity)
+        return False
 
 
 # --------------------------------------------------------------------------

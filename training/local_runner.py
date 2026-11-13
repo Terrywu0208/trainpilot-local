@@ -241,14 +241,25 @@ class LocalExecutor:
         metrics = None
         checkpoint = None
         if succeeded:
-            accuracy = result.get("val_accuracy")
-            metrics = {"eval_accuracy": accuracy}
+            if result.get("eval_perplexity") is not None:
+                metrics = {
+                    "eval_perplexity": result.get("eval_perplexity"),
+                    "baseline_perplexity": result.get(
+                        "baseline_perplexity"
+                    ),
+                }
+            else:
+                accuracy = result.get("val_accuracy")
+                metrics = {"eval_accuracy": accuracy}
             if checkpoint_dir.is_dir():
                 checkpoint = str(checkpoint_dir)
-        return {
+        outcome = {
             "status": "succeeded" if succeeded else "failed",
             "logs": logs,
             "metrics": metrics,
             "checkpoint_dir": checkpoint,
             "duration_seconds": duration,
         }
+        if succeeded and result.get("samples") is not None:
+            outcome["samples"] = result["samples"]
+        return outcome

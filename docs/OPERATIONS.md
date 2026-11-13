@@ -62,6 +62,10 @@ Key facts before you start:
   gate. Headless callers must supply an approval handler; the web app asks
   a human. With no handler at all, only the first launch is approved and
   repair launches are denied (the safe default — see Flow B).
+- **Two task types.** Fine-tuning is Flows A–F. Pretraining a tiny
+  language model from scratch is Flow G — and unlike the fine-tune
+  smoke backend, its training is real gradient descent, verified by
+  held-out perplexity.
 
 ---
 
@@ -710,7 +714,84 @@ run, next to the Run Console — the same attempt seen from both sides.
 
 ---
 
-## 9. Troubleshooting
+## 9. Flow G — Pretraining a tiny language model from scratch
+
+Everything in Flows A–F fine-tunes. The agent also **pretrains**: a
+tiny word-level language model trained from scratch on a text corpus.
+Unlike the fine-tune smoke backend, this path is not simulated — it is
+real gradient descent (pure standard library, full-batch, grouped by
+context word) on the bundled corpus `training/corpora/tinytales.txt`
+(248 original sentences, 3,892 tokens, vocabulary 387, embedding
+dim 32). The checkpoint is a genuine safetensors file holding the
+trained `embedding` / `output_weight` / `output_bias` tensors; after
+writing it, the trainer reloads it from disk and generates the sample
+sentences from the reloaded weights. Verification is by held-out
+perplexity: the run passes only if the final perplexity is below 90%
+of the untrained baseline (and the checkpoint exists, loads, and
+honors the request, as always).
+
+In the web console there is a preset chip, **Pretrain a tiny LM from
+scratch**; the same request typed out is:
+
+```
+Pretrain a tiny language model from scratch on the tinytales corpus with 2 CPU workers
+```
+
+Pretraining defaults to 3 epochs (1 epoch barely moves perplexity)
+and learning rate 0.1 unless the request says otherwise.
+
+### G.1 The four user journeys (all executed, 2026-11-13)
+
+`docs/PERSONAS.md` describes the four users this flow is designed
+for. Each journey below was driven end-to-end through the web app API
+against the real agent and trainer (deterministic, seed 42):
+
+| User | Request | Result |
+|---|---|---|
+| First-time learner | the preset sentence above | **success, 1 attempt** — perplexity 431.98 → **211.59**; final message carries a generated sample: *"fixes house river storm letter deep garden big quiet full bread iron wait one be"* |
+| Indie builder | "…on the **mynotes** corpus…" (not bundled) | **honest failure** — `CORPUS_NOT_AVAILABLE`; the agent gave up after 1 attempt (`no_safe_repair`) with the diagnosis "the named corpus is not bundled with the local demo". No substitution, no fake success |
+| ML engineer | the preset sentence + "with learning rate 5" | attempt 1 **diverged** (`LM_DIVERGED`: final validation perplexity far worse than the untrained baseline) → critic diagnosed the learning rate → repair set it to 0.1 → **attempt 2 succeeded**, perplexity 211.59, unattended |
+| Teacher / presenter | follow-up in the same session: "Same corpus as before, but train for 6 epochs this time" | session context carried the pretraining task; **success** — perplexity improved further to **137.63** |
+
+### G.2 The trainer directly
+
+```console
+$ cat > /tmp/pretrain.yaml <<'YAML'
+task_type: pretrain
+dataset: tinytales
+learning_rate: 0.1
+epochs: 3
+train_subsample: 100000
+output_dir: /tmp/pretrain-out
+YAML
+$ .venv/bin/python training/train.py --config /tmp/pretrain.yaml --backend smoke
+TRAINPILOT_STEP {"global_step": 1, "loss": 5.981, "lr": 0.1, "elapsed_sec": 0.76}
+... (11 more steps; the loss falls steadily)
+TRAINPILOT_STEP {"global_step": 12, "loss": 5.3115, "lr": 0.1, "elapsed_sec": 7.39}
+SAMPLE: fixes house river storm letter deep garden big quiet full bread iron wait one be
+SAMPLE: wash apple neighbors red cold gray flowers every his cellar church world ships sings heron tree again
+SAMPLE: appears glass cellar baby neighbors the sea at she it eat cat bell kitchen can sea floor
+TRAINPILOT_RESULT {"status": "succeeded", "val_accuracy": null, "eval_perplexity": 211.59, "baseline_perplexity": 431.98, "val_loss": 5.3546, "global_step": 12, "vocab_size": 387, "corpus_tokens": 3729, ...}
+```
+
+Failure signatures, all honest and all covered by tests:
+`CORPUS_NOT_AVAILABLE` (unknown corpus), `CORPUS_TOO_SMALL` (token
+budget below the 1,500-token minimum — the critic's repair raises
+`train_subsample`; a corpus that is genuinely smaller than the
+minimum stays a terminal, explained failure), `LM_LOSS_NAN` (a
+training step went non-finite), `LM_DIVERGED` (training finished but
+the model ended far worse than the untrained baseline — reported as
+divergence, never as success; the critic repairs the learning rate).
+
+![Pretrain run in the two-pane console: perplexity badge and verdict card](images/08-pretrain-verdict.png)
+
+**Screenshot point S9:** the pretrain verdict above — diagram
+complete, chat verdict card with the sample sentence, and the
+verification panel's perplexity badge (211.6 vs baseline 432.0).
+
+---
+
+## 10. Troubleshooting
 
 | Symptom | Cause | Fix |
 |---|---|---|
@@ -724,11 +805,11 @@ run, next to the Run Console — the same attempt seen from both sides.
 
 ---
 
-## 10. Screenshot checklist (for your own test records)
+## 11. Screenshot checklist (for your own test records)
 
 Capture these, in order, and you have end-to-end evidence of every flow:
 
-- **S1** Terminal: `292 passed` from the full test suite.
+- **S1** Terminal: `315 passed` from the full test suite.
 - **S2** Training: the clean run's `TRAINPILOT_RESULT` line + the
   eight-file `checkpoint-final/` listing.
 - **S3** Training: the NCCL and OOM failure lines next to their repaired
@@ -745,11 +826,15 @@ Capture these, in order, and you have end-to-end evidence of every flow:
 - **S7** Tool layer: the three rejected validator calls.
 - **S8** Cluster (Docker machine only): `kubectl get pods` during a
   run, next to the Run Console.
+- **S9** Pretraining: the Flow G verdict frame in `docs/images/`
+  (`08-pretrain-verdict.png`) — perplexity badge, sample sentence,
+  and the four persona journey outcomes in the run history.
 
 All commands in this guide run offline and cost nothing. Outputs quoted
 above were captured on 2026-11-12 from commit `ed18c38` of this
 repository; the web app section (§6) and its screenshots were refreshed
 on 2026-11-13 after the console rebuild and five rounds of use-case
-verification. Your numbers should match exactly for the deterministic
+verification. Flow G (pretraining) and its screenshot were added the
+same day; its numbers are deterministic (seed 42) and match anywhere. Your numbers should match exactly for the deterministic
 flows (tests, smoke training, lab50 demo systems) and will differ —
 by design — for real cluster experiments.

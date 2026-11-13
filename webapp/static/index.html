@@ -383,6 +383,7 @@
           <span>Presets:</span>
           <button type="button" class="preset" id="preset-canonical">Canonical fine-tune</button>
           <button type="button" class="preset" id="preset-followup">Follow-up: run 3 epochs (same session)</button>
+          <button type="button" class="preset" id="preset-pretrain">Pretrain a tiny LM from scratch</button>
         </div>
         <label for="request-text">What should the agent do?</label>
         <textarea id="request-text" rows="2">Fine-tune DistilBERT on SST-2 with 2 CPU workers</textarea>
@@ -745,7 +746,12 @@ function deriveChat(ev) {
       const acc = p.validation_accuracy !== undefined ? p.validation_accuracy : p.accuracy;
       const sig = "verify:" + (p.passed === undefined ? "?" : p.passed) + ":" + (acc === undefined ? "" : acc);
       chatOnce(sig, () => addAssistantMsg(p.passed
-        ? "Verification <strong>passed</strong>" + (acc !== undefined && acc !== null ? " — validation accuracy " + esc(num(acc, 4)) + "." : ".")
+        ? "Verification <strong>passed</strong>" + (acc !== undefined && acc !== null
+            ? " — validation accuracy " + esc(num(acc, 4)) + "."
+            : (p.eval_perplexity !== undefined && p.eval_perplexity !== null
+                ? " — validation perplexity " + esc(num(p.eval_perplexity, 1)) +
+                  " (untrained baseline " + esc(num(p.baseline_perplexity, 1)) + ")."
+                : "."))
         : "Verification <strong>did not pass</strong> — success is not claimed."));
       break;
     }
@@ -892,6 +898,7 @@ function renderVerification(v) {
     setBadge("vb-config", "", "Waiting for a result…");
     const acc = $("vb-accuracy");
     acc.classList.remove("ok", "no");
+    acc.querySelector(".vlab").textContent = "Validation accuracy";
     acc.querySelector(".vic").innerHTML = "&#8226;";
     acc.querySelector(".vnote").textContent = "Status: UNVERIFIED — no result yet.";
     if (acc.querySelector(".accnum")) acc.querySelector(".accnum").remove();
@@ -903,7 +910,21 @@ function renderVerification(v) {
   setBadge("vb-config", v.config_honors_request ? "ok" : "no", v.config_honors_request ? "Final config matches the original request." : "Final config differs from the request.");
   const accEl = $("vb-accuracy");
   const acc = v.validation_accuracy;
+  const ppl = v.validation_perplexity, pplBase = v.baseline_perplexity;
   accEl.classList.remove("ok", "no");
+  if ((acc === null || acc === undefined) && ppl !== null && ppl !== undefined) {
+    accEl.querySelector(".vlab").textContent = "Validation perplexity";
+    const improved = pplBase && ppl < 0.9 * pplBase;
+    accEl.querySelector(".vic").innerHTML = improved ? "&#10003;" : "&#10007;";
+    accEl.classList.add(improved ? "ok" : "no");
+    let big = accEl.querySelector(".accnum");
+    if (!big) { big = document.createElement("div"); big.className = "accnum"; accEl.insertBefore(big, accEl.querySelector(".meter")); }
+    big.textContent = "ppl " + num(ppl, 1);
+    accEl.querySelector(".vnote").textContent = "Perplexity " + num(ppl, 1) + " vs untrained baseline " + num(pplBase, 1) + (improved ? " — improved." : " — not improved enough.");
+    $("acc-meter").innerHTML = "";
+    return;
+  }
+  accEl.querySelector(".vlab").textContent = "Validation accuracy";
   if (acc === null || acc === undefined) {
     accEl.querySelector(".vic").innerHTML = "&#10007;";
     accEl.classList.add("no");
@@ -952,9 +973,12 @@ async function finalizeLiveRun(runId) {
       postVerdictCard("bad", "✗ RUN ERROR", data.error || "The run failed with an error.");
       setRunChip("error", "error");
     } else if (res.success && v && v.passed) {
-      showVerdict("ok", "✓ VERIFIED SUCCESS — validation accuracy " + num(acc, 4) +
+      const metric = (acc !== null && acc !== undefined)
+        ? "validation accuracy " + num(acc, 4)
+        : "validation perplexity " + num(v.validation_perplexity, 1);
+      showVerdict("ok", "✓ VERIFIED SUCCESS — " + metric +
         " · " + (res.attempts || "?") + " attempt(s)", res.final_message || "");
-      postVerdictCard("ok", "✓ VERIFIED SUCCESS — validation accuracy " + num(acc, 4) +
+      postVerdictCard("ok", "✓ VERIFIED SUCCESS — " + metric +
         " · " + (res.attempts || "?") + " attempt(s)", res.final_message || "");
       setRunChip("finished", "finished — verified success");
     } else if (res.success) {
@@ -1150,6 +1174,10 @@ $("preset-canonical").addEventListener("click", () => {
 });
 $("preset-followup").addEventListener("click", () => {
   $("request-text").value = "Same setup as before, but run 3 epochs this time";
+  $("f-epochs").value = 3;
+});
+$("preset-pretrain").addEventListener("click", () => {
+  $("request-text").value = "Pretrain a tiny language model from scratch on the tinytales corpus with 2 CPU workers";
   $("f-epochs").value = 3;
 });
 $("session-id").addEventListener("change", () => {

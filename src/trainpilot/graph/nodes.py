@@ -46,6 +46,38 @@ from .state import (
 _ACTION_FIX_KEYS = {"rebuild_image_with_lockfile", "sanitize_labels"}
 _BANNED_PATTERNS = ("os.system", "shell=True", "eval(", "rm -rf", "subprocess")
 
+_STRONG_PRETRAIN_MARKERS = ("pretrain", "pre-train", "tiny lm", "train an lm")
+_LEARNING_RATE_RE = re.compile(r"learning rate (?:of )?([\d.]+)")
+
+
+def _pretrain_intent(lowered: str) -> bool:
+    """True when the text asks for from-scratch language-model training.
+
+    Deliberately stricter than a bare "from scratch" substring: a
+    fine-tune request like "reload the dataset from scratch" (lab50
+    task L16) must NOT flip to pretraining. Pretrain intent needs an
+    explicit pretrain marker, or a language model being trained.
+    """
+    if any(marker in lowered for marker in _STRONG_PRETRAIN_MARKERS):
+        return True
+    if "language model" in lowered and (
+            "train" in lowered or "scratch" in lowered):
+        return True
+    if "from scratch" in lowered and "train" in lowered \
+            and "model" in lowered:
+        return True
+    return False
+
+
+def _named_corpus(lowered: str) -> str:
+    """The corpus named in a pretraining request, normalized to a corpus
+    id (lowercase, hyphens stripped). Defaults to the bundled corpus."""
+    match = re.search(r"on the ([\w\-]+) corpus", lowered) or re.search(
+        r"corpus (?:called |named )?([\w\-]+)", lowered)
+    if match:
+        return match.group(1).replace("-", "")
+    return "tinytales"
+
 
 # ----------------------------------------------------------------------
 # helpers
@@ -122,6 +154,17 @@ def _extract_hints(text: str) -> dict[str, Any]:
         hints["num_workers"] = int(match.group(1))
     elif "two" in lowered and "worker" in lowered:
         hints["num_workers"] = 2
+    if _pretrain_intent(lowered):
+        hints["task_type"] = "pretrain"
+        hints["model_name"] = "tiny-lm"
+        hints["dataset"] = _named_corpus(lowered)
+        if "epochs" not in hints:
+            # A from-scratch LM needs a few passes to visibly learn; the
+            # fine-tune default of 1 epoch barely moves perplexity.
+            hints["epochs"] = 3
+    match = _LEARNING_RATE_RE.search(lowered)
+    if match:
+        hints["learning_rate"] = float(match.group(1))
     return hints
 
 
@@ -136,6 +179,13 @@ def _explicit_overrides(text: str) -> dict[str, Any]:
     """
     lowered = text.lower()
     overrides: dict[str, Any] = {}
+    if _pretrain_intent(lowered):
+        # A pretraining request names a corpus, not a fine-tune dataset:
+        # keep the corpus id exactly as named (never substitute the
+        # bundled one silently) and pin the tiny-LM model.
+        overrides["task_type"] = "pretrain"
+        overrides["model_name"] = "tiny-lm"
+        overrides["dataset"] = _named_corpus(lowered)
     if re.search(r"\bgpu\b", lowered):
         overrides["cpu_only"] = False
     match = re.search(r"(\d+)\s*(?:cpu\s+|gpu\s+)?workers?", lowered)
@@ -144,12 +194,13 @@ def _explicit_overrides(text: str) -> dict[str, Any]:
     match = re.search(r"(\d+)\s*epochs?", lowered)
     if match:
         overrides["epochs"] = int(match.group(1))
-    match = re.search(r"on the ([\w\-]+) dataset", lowered) or re.search(
-        r"dataset (?:called |named )?([\w\-]+)", lowered)
-    if match:
-        name = match.group(1).replace("-", "")
-        if name != "sst2":
-            overrides["dataset"] = name
+    if "dataset" not in overrides:
+        match = re.search(r"on the ([\w\-]+) dataset", lowered) or re.search(
+            r"dataset (?:called |named )?([\w\-]+)", lowered)
+        if match:
+            name = match.group(1).replace("-", "")
+            if name != "sst2":
+                overrides["dataset"] = name
     return overrides
 
 
@@ -173,6 +224,20 @@ def make_intake_profiler(ctx: AgentContext):
     def intake_profiler(state: dict) -> dict:
         raw = state.get("user_request_raw", "")
         hints = _extract_hints(raw)
+        session_ctx = state.get("session_context") or ""
+        if (session_ctx and "task_type" not in hints
+                and any(word in raw.lower()
+                        for word in ("same", "as before", "again"))
+                and _pretrain_intent(session_ctx.lower())):
+            # A referential follow-up ("same corpus, but train for 6
+            # epochs") inside a pretraining session continues the
+            # pretraining task. Fields the new request states explicitly
+            # (epochs, workers) were extracted above and win; only the
+            # task identity is carried over from the session context.
+            ctx_hints = _extract_hints(session_ctx)
+            for key in ("task_type", "model_name", "dataset"):
+                if key in ctx_hints:
+                    hints.setdefault(key, ctx_hints[key])
         user_prompt = (
             json.dumps(hints)
             + "\n"
@@ -218,9 +283,13 @@ def make_planner(ctx: AgentContext):
         entries = memory_mod.select_for_prompt(
             state.get("failure_memory", []),
             error_class=diagnosis.get("error_class"))
+        lr_match = _LEARNING_RATE_RE.search(request.raw_text.lower())
         merged = {
             "model_name": request.model_name,
             "dataset": request.dataset,
+            "task_type": request.task_type,
+            "learning_rate": (
+                float(lr_match.group(1)) if lr_match else None),
             "num_workers": request.num_workers,
             "epochs": request.epochs,
             "proposed_fix": proposed_fix,
@@ -243,12 +312,31 @@ def make_planner(ctx: AgentContext):
         try:
             spec = TrainingSpec(**spec_data)
         except Exception:
-            spec = previous_spec or TrainingSpec(
-                model_name=request.model_name,
-                dataset=request.dataset,
-                num_workers=request.num_workers,
-                epochs=request.epochs,
-            )
+            if previous_spec is not None:
+                spec = previous_spec
+            elif request.task_type == "pretrain":
+                spec = TrainingSpec(
+                    model_name=request.model_name,
+                    dataset=request.dataset,
+                    num_workers=request.num_workers,
+                    epochs=request.epochs,
+                    task_type="pretrain",
+                    train_subsample=100000,
+                    learning_rate=0.1,
+                )
+            else:
+                spec = TrainingSpec(
+                    model_name=request.model_name,
+                    dataset=request.dataset,
+                    num_workers=request.num_workers,
+                    epochs=request.epochs,
+                )
+        # The request wins over the LLM reply on task type: a pretraining
+        # request must never come back as a fine-tune spec (or the reverse)
+        # just because the reply omitted or garbled the field.
+        if spec.task_type != request.task_type:
+            spec = TrainingSpec(
+                **{**spec.model_dump(), "task_type": request.task_type})
         # Deterministic adoption of the critic's fix: spec fields are
         # applied to the new spec; named repair actions are recorded.
         memory_entries = [dict(e) for e in state.get("failure_memory", [])]
@@ -828,23 +916,46 @@ def make_verifier(ctx: AgentContext):
             honors = False
             details["model_dataset_mismatch"] = "spec changed the requested model or dataset"
 
-        verification = VerificationResult(
-            checkpoint_exists=exists,
-            checkpoint_loadable=loadable,
-            validation_accuracy=accuracy,
-            config_honors_request=honors,
-            details=details,
-        )
+        event: dict[str, Any] = {
+            "attempt": int(state.get("attempt", 0)),
+        }
+        if spec.task_type == "pretrain":
+            # A pretrained LM has no accuracy: it passes only if its eval
+            # perplexity clearly beats the untrained baseline's.
+            eval_perplexity = metrics.get("eval_perplexity")
+            baseline_perplexity = metrics.get("baseline_perplexity")
+            details["eval_perplexity"] = eval_perplexity
+            details["baseline_perplexity"] = baseline_perplexity
+            verification = VerificationResult(
+                checkpoint_exists=exists,
+                checkpoint_loadable=loadable,
+                validation_accuracy=None,
+                validation_perplexity=eval_perplexity,
+                baseline_perplexity=baseline_perplexity,
+                config_honors_request=honors,
+                details=details,
+            )
+            event.update({
+                "validation_accuracy": None,
+                "eval_perplexity": eval_perplexity,
+                "baseline_perplexity": baseline_perplexity,
+            })
+        else:
+            verification = VerificationResult(
+                checkpoint_exists=exists,
+                checkpoint_loadable=loadable,
+                validation_accuracy=accuracy,
+                config_honors_request=honors,
+                details=details,
+            )
+            event["validation_accuracy"] = accuracy
         dump = verification.model_dump()
         dump["passed"] = verification.passed
         working = budget_mod.budget_from_state(state.get("budget"))
         working = budget_mod.charge_tool_call(working)
         working = budget_mod.refresh_wall_clock(working, ctx.started_monotonic)
-        ctx.emit("verification_done", {
-            "attempt": int(state.get("attempt", 0)),
-            "passed": verification.passed,
-            "validation_accuracy": accuracy,
-        })
+        event["passed"] = verification.passed
+        ctx.emit("verification_done", event)
         updates: dict[str, Any] = {
             "verification": dump,
             "budget": budget_mod.dump(working),
@@ -885,12 +996,27 @@ def make_final_reporter(ctx: AgentContext):
         diagnosis = state.get("last_diagnosis") or {}
         spec = state.get("spec") or {}
         if outcome == "succeeded":
-            headline = (
-                f"Training succeeded after {attempts} attempt(s): checkpoint "
-                f"verified with eval_accuracy "
-                f"{verification.get('validation_accuracy')} "
-                f"(spec hash {spec.get('spec_hash', state.get('spec_hash', ''))})."
-            )
+            if spec.get("task_type") == "pretrain" or (
+                    verification.get("validation_perplexity") is not None):
+                headline = (
+                    f"Pretraining succeeded after {attempts} attempt(s): "
+                    f"checkpoint verified with eval_perplexity "
+                    f"{verification.get('validation_perplexity')} "
+                    f"(untrained baseline "
+                    f"{verification.get('baseline_perplexity')}, spec hash "
+                    f"{spec.get('spec_hash', state.get('spec_hash', ''))})."
+                )
+                samples = (state.get("executor_result") or {}).get(
+                    "samples") or []
+                if samples:
+                    headline += f' Sample output: "{samples[0]}"'
+            else:
+                headline = (
+                    f"Training succeeded after {attempts} attempt(s): checkpoint "
+                    f"verified with eval_accuracy "
+                    f"{verification.get('validation_accuracy')} "
+                    f"(spec hash {spec.get('spec_hash', state.get('spec_hash', ''))})."
+                )
         elif outcome == "rejected":
             headline = (
                 "Run stopped before completion: an approval was denied "
@@ -918,6 +1044,10 @@ def make_final_reporter(ctx: AgentContext):
                 ctx, state, "final_reporter",
                 load_prompt("reporter_system.txt"), headline)
             candidate = text.strip().splitlines()[0][:200] if text.strip() else ""
+            if candidate and headline.startswith(candidate):
+                # The stub (and some models) echo the headline back,
+                # truncated at 200 chars; an echo is not a polish.
+                candidate = ""
             if candidate:
                 if outcome == "succeeded" and "succeeded" in candidate.lower():
                     message = candidate

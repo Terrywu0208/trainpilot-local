@@ -32,9 +32,13 @@ import json
 import math
 import os
 import random
+import re
+import struct
 import sys
 import time
 import zlib
+from collections import Counter
+from operator import mul
 from pathlib import Path
 
 # --------------------------------------------------------------------------
@@ -288,6 +292,11 @@ def _smoke_fail(config: dict, signature: str, lines: list[str],
 
 def run_smoke(config: dict) -> int:
     started = time.monotonic()
+    # Pretraining (task_type=pretrain) is a separate path: it trains a
+    # tiny word-level language model from scratch on a bundled corpus
+    # instead of fine-tuning on SST-2.
+    if str(config.get("task_type", "")) == "pretrain":
+        return _run_pretrain_smoke(config, started)
     out_dir = Path(str(config["output_dir"]))
     fault = str(config.get("fault", "none"))
     flags = config.get("repair_flags") or {}
@@ -494,6 +503,425 @@ def run_smoke(config: dict) -> int:
 
 
 # --------------------------------------------------------------------------
+# Pretrain engine (pure standard library): a tiny word-level neural
+# bigram language model trained from scratch on a bundled corpus.
+# --------------------------------------------------------------------------
+
+_PRETRAIN_CORPORA = {
+    "tinytales": Path(__file__).resolve().parent / "corpora"
+    / "tinytales.txt",
+}
+_PRETRAIN_TOKEN_RE = re.compile(r"[a-z']+")
+_PRETRAIN_EMBED_DIM = 32
+_PRETRAIN_MAX_VOCAB = 384
+_PRETRAIN_MIN_TOKENS = 1500
+_PRETRAIN_NUM_CHUNKS = 4
+_PRETRAIN_MAX_STEPS = 60
+_PRETRAIN_INIT_SCALE = 0.5
+_LM_UNK = "<unk>"
+_LM_BOS = "<s>"
+_LM_EOS = "</s>"
+
+
+def _lm_logits(W: list, b: list, ec: list) -> list:
+    """Logits for one context embedding: W . ec + b."""
+    return [
+        sum(map(mul, wrow, ec)) + bt
+        for wrow, bt in zip(W, b)
+    ]
+
+
+def _lm_mean_loss(E: list, W: list, b: list, ctx_counts: dict,
+                  total: int) -> float:
+    """Mean cross-entropy over all (context, target) positions."""
+    nll = 0.0
+    for c, targets in ctx_counts.items():
+        z = _lm_logits(W, b, E[c])
+        m = max(z)
+        s = 0.0
+        for x in z:
+            s += math.exp(x - m)
+        lse = m + math.log(s)
+        for t, cnt in targets.items():
+            nll += cnt * (lse - z[t])
+    return nll / max(total, 1)
+
+
+def _lm_chunk_step(E: list, W: list, b: list, chunk: list,
+                   ctx_counts: dict, lr: float) -> None:
+    """One full-batch SGD step over one chunk of distinct contexts.
+
+    All positions sharing a context word also share logits, so targets
+    are aggregated per context and each distinct context needs only one
+    softmax. Gradients are those of the summed per-position loss,
+    scaled by 1 / (number of distinct contexts in the chunk).
+    """
+    vocab_size = len(b)
+    dim = _PRETRAIN_EMBED_DIM
+    scale = 1.0 / max(len(chunk), 1)
+    # Forward pass for each distinct context in the chunk: dl is the
+    # gradient of the loss with respect to that context's logits.
+    DL = []
+    for c in chunk:
+        targets = ctx_counts[c]
+        n_c = sum(targets.values())
+        z = _lm_logits(W, b, E[c])
+        m = max(z)
+        exps = [math.exp(x - m) for x in z]
+        s = sum(exps)
+        DL.append(
+            [
+                (exps[t] / s * n_c - targets.get(t, 0)) * scale
+                for t in range(vocab_size)
+            ]
+        )
+    # All gradients are formed from the pre-update parameters, using
+    # transposed matrices so each gradient entry is one dot product
+    # (summation order matches the naive loops exactly).
+    DL_T = [
+        [DL[j][t] for j in range(len(chunk))]
+        for t in range(vocab_size)
+    ]
+    E_T = [[E[c][d] for c in chunk] for d in range(dim)]
+    W_T = [[W[t][d] for t in range(vocab_size)] for d in range(dim)]
+    grad_b = [sum(col) for col in DL_T]
+    grad_W = [
+        [sum(map(mul, DL_T[t], E_T[d])) for d in range(dim)]
+        for t in range(vocab_size)
+    ]
+    for j, c in enumerate(chunk):
+        ge = [sum(map(mul, DL[j], W_T[d])) for d in range(dim)]
+        E[c] = [e - lr * g for e, g in zip(E[c], ge)]
+    for t in range(vocab_size):
+        W[t] = [w - lr * g for w, g in zip(W[t], grad_W[t])]
+        b[t] -= lr * grad_b[t]
+
+
+def _write_safetensors(path: Path, tensors: list) -> None:
+    """Write real safetensors: 8-byte header length + JSON + F32 data.
+
+    `tensors` is a list of (name, shape, flat row-major floats).
+    """
+    header: dict = {}
+    data = bytearray()
+    for name, shape, flat in tensors:
+        start = len(data)
+        data += struct.pack("<%df" % len(flat), *flat)
+        header[name] = {
+            "dtype": "F32",
+            "shape": list(shape),
+            "data_offsets": [start, len(data)],
+        }
+    header_json = json.dumps(header).encode("utf-8")
+    path.write_bytes(
+        len(header_json).to_bytes(8, "little") + header_json + bytes(data)
+    )
+
+
+def _read_safetensors(path: Path):
+    """Parse a safetensors file back into (header, {name: flat floats})."""
+    raw = path.read_bytes()
+    header_len = int.from_bytes(raw[:8], "little")
+    header = json.loads(raw[8:8 + header_len])
+    body = raw[8 + header_len:]
+    tensors = {}
+    for name, meta in header.items():
+        start, end = meta["data_offsets"]
+        count = (end - start) // 4
+        tensors[name] = list(
+            struct.unpack("<%df" % count, body[start:end])
+        )
+    return header, tensors
+
+
+def _lm_sample(E: list, W: list, b: list, vocab: list, bos: int,
+               eos: int, rng: random.Random, max_words: int = 18,
+               temperature: float = 0.8) -> str:
+    words: list = []
+    c = bos
+    for _ in range(max_words):
+        z = [x / temperature for x in _lm_logits(W, b, E[c])]
+        m = max(z)
+        exps = [math.exp(x - m) for x in z]
+        s = sum(exps)
+        r = rng.random() * s
+        acc = 0.0
+        nxt = len(z) - 1
+        for i, e in enumerate(exps):
+            acc += e
+            if r <= acc:
+                nxt = i
+                break
+        if nxt == eos:
+            break
+        token = vocab[nxt]
+        if token not in (_LM_UNK, _LM_BOS, _LM_EOS):
+            words.append(token)
+        c = nxt
+    return " ".join(words)
+
+
+def _write_lm_checkpoint(config: dict, out_dir: Path, E: list, W: list,
+                         b: list, vocab: list, metrics: dict) -> Path:
+    ckpt = out_dir / "checkpoint-final"
+    ckpt.mkdir(parents=True, exist_ok=True)
+    vocab_size = len(vocab)
+    (ckpt / "config.json").write_text(
+        json.dumps(
+            {
+                "architectures": ["TinyWordLM"],
+                "model_type": "tiny_word_lm",
+                "vocab_size": vocab_size,
+                "embedding_dim": _PRETRAIN_EMBED_DIM,
+            },
+            indent=2,
+        ),
+        encoding="utf-8",
+    )
+    _write_safetensors(
+        ckpt / "model.safetensors",
+        [
+            (
+                "embedding",
+                [vocab_size, _PRETRAIN_EMBED_DIM],
+                [x for row in E for x in row],
+            ),
+            (
+                "output_weight",
+                [vocab_size, _PRETRAIN_EMBED_DIM],
+                [x for row in W for x in row],
+            ),
+            ("output_bias", [vocab_size], list(b)),
+        ],
+    )
+    (ckpt / "lm_vocab.json").write_text(
+        json.dumps({"vocab": vocab}, indent=2), encoding="utf-8"
+    )
+    (ckpt / "metrics.json").write_text(
+        json.dumps(metrics, indent=2), encoding="utf-8"
+    )
+    resolved = {k: config[k] for k in sorted(config)}
+    (ckpt / "training_args.json").write_text(
+        json.dumps(resolved, indent=2, default=str), encoding="utf-8"
+    )
+    return ckpt
+
+
+def _run_pretrain_smoke(config: dict, started: float) -> int:
+    out_dir = Path(str(config["output_dir"]))
+    seed = int(config["seed"])
+    lr = float(config["learning_rate"])
+    epochs = int(config["epochs"])
+
+    corpus_name = str(config.get("dataset", "tinytales"))
+    corpus_path = _PRETRAIN_CORPORA.get(
+        corpus_name, _PRETRAIN_CORPORA.get(corpus_name.lower())
+    )
+    if corpus_path is None or not corpus_path.is_file():
+        return _smoke_fail(
+            config,
+            "CORPUS_NOT_AVAILABLE",
+            [
+                f"ValueError: corpus '{corpus_name}' is not available "
+                "in the local demo (only 'tinytales' is bundled)"
+            ],
+        )
+
+    lines = [
+        line.strip()
+        for line in corpus_path.read_text(encoding="utf-8").splitlines()
+        if line.strip()
+    ]
+    tokenized = [
+        _PRETRAIN_TOKEN_RE.findall(line.lower()) for line in lines
+    ]
+
+    counts: Counter = Counter()
+    for words in tokenized:
+        counts.update(words)
+    ranked = sorted(counts.items(), key=lambda kv: (-kv[1], kv[0]))
+    vocab_words = [
+        w for w, c in ranked if c >= 2
+    ][:_PRETRAIN_MAX_VOCAB]
+    vocab = [_LM_UNK, _LM_BOS, _LM_EOS] + vocab_words
+    word_to_id = {w: i for i, w in enumerate(vocab)}
+    unk_id = word_to_id[_LM_UNK]
+    bos_id = word_to_id[_LM_BOS]
+    eos_id = word_to_id[_LM_EOS]
+    vocab_size = len(vocab)
+
+    sequences = [
+        [bos_id]
+        + [word_to_id.get(w, unk_id) for w in words]
+        + [eos_id]
+        for words in tokenized
+    ]
+
+    order = list(range(len(sequences)))
+    random.Random(seed).shuffle(order)
+    n_val = max(1, int(round(0.15 * len(sequences))))
+    val_seqs = [sequences[i] for i in order[:n_val]]
+    train_seqs = [sequences[i] for i in order[n_val:]]
+
+    val_counts: dict = {}
+    val_total = 0
+    for seq in val_seqs:
+        for i in range(len(seq) - 1):
+            val_counts.setdefault(seq[i], Counter())[seq[i + 1]] += 1
+            val_total += 1
+
+    train_available = sum(len(seq) for seq in train_seqs)
+    tokens_used = min(int(config["train_subsample"]), train_available)
+    if tokens_used < _PRETRAIN_MIN_TOKENS:
+        return _smoke_fail(
+            config,
+            "CORPUS_TOO_SMALL",
+            [
+                "ValueError: corpus too small after split: "
+                f"{tokens_used} tokens below the 1500-token minimum "
+                "for language-model pretraining"
+            ],
+        )
+
+    train_counts: dict = {}
+    train_total = 0
+    consumed = 0
+    for seq in train_seqs:
+        if consumed >= tokens_used:
+            break
+        piece = seq[: tokens_used - consumed]
+        consumed += len(piece)
+        for i in range(len(piece) - 1):
+            train_counts.setdefault(piece[i], Counter())[piece[i + 1]] += 1
+            train_total += 1
+
+    # Model init: seeded uniform, deterministic.
+    init_rng = random.Random(seed)
+    E = [
+        [init_rng.uniform(-_PRETRAIN_INIT_SCALE, _PRETRAIN_INIT_SCALE)
+         for _ in range(_PRETRAIN_EMBED_DIM)]
+        for _ in range(vocab_size)
+    ]
+    W = [
+        [init_rng.uniform(-_PRETRAIN_INIT_SCALE, _PRETRAIN_INIT_SCALE)
+         for _ in range(_PRETRAIN_EMBED_DIM)]
+        for _ in range(vocab_size)
+    ]
+    b = [0.0] * vocab_size
+
+    baseline_loss = _lm_mean_loss(E, W, b, val_counts, val_total)
+    baseline_ppl = math.exp(baseline_loss)
+
+    contexts = sorted(train_counts)
+    chunks = [
+        contexts[i::_PRETRAIN_NUM_CHUNKS]
+        for i in range(_PRETRAIN_NUM_CHUNKS)
+    ]
+    chunks = [chunk for chunk in chunks if chunk]
+    total_steps = min(
+        epochs * _PRETRAIN_NUM_CHUNKS, _PRETRAIN_MAX_STEPS
+    )
+    step = 0
+    for step_index in range(total_steps):
+        chunk = chunks[step_index % len(chunks)]
+        _lm_chunk_step(E, W, b, chunk, train_counts, lr)
+        step = step_index + 1
+        loss = _lm_mean_loss(E, W, b, train_counts, train_total)
+        if not math.isfinite(loss) or loss > 50:
+            return _smoke_fail(
+                config,
+                "LM_LOSS_NAN",
+                [
+                    "Training diverged: lm loss became nan after step "
+                    f"{step}; perplexity=inf"
+                ],
+                global_step=step,
+            )
+        _emit_step(step, round(loss, 4), lr, time.monotonic() - started)
+
+    final_loss = _lm_mean_loss(E, W, b, val_counts, val_total)
+    if not math.isfinite(final_loss) or final_loss > baseline_loss + 1.0:
+        # The loss exploded without ever producing a NaN step (possible
+        # when the run ends before the step guard trips): the trained
+        # model is far worse than the untrained baseline, which is a
+        # diverged run by any honest reading - never report it as a
+        # successful pretrain.
+        shown_ppl = (
+            math.exp(min(final_loss, 700.0))
+            if math.isfinite(final_loss) else float("inf")
+        )
+        return _smoke_fail(
+            config,
+            "LM_DIVERGED",
+            [
+                "Training diverged: validation perplexity "
+                f"{shown_ppl:.2f} is far worse than the untrained "
+                f"baseline {baseline_ppl:.2f} (perplexity exploded; "
+                "the learning rate is too high for this tiny model)"
+            ],
+            global_step=step,
+        )
+    final_ppl = math.exp(final_loss)
+
+    metrics = {
+        "eval_perplexity": round(final_ppl, 2),
+        "baseline_perplexity": round(baseline_ppl, 2),
+        "val_loss": round(final_loss, 4),
+        "global_step": step,
+    }
+    ckpt = _write_lm_checkpoint(config, out_dir, E, W, b, vocab, metrics)
+
+    # Proof of loadability: rebuild the model from the checkpoint files
+    # on disk and generate sample sentences with the reloaded weights.
+    _, tensors = _read_safetensors(ckpt / "model.safetensors")
+    disk_vocab = json.loads(
+        (ckpt / "lm_vocab.json").read_text(encoding="utf-8")
+    )["vocab"]
+    dim = _PRETRAIN_EMBED_DIM
+    E2 = [
+        tensors["embedding"][i * dim:(i + 1) * dim]
+        for i in range(len(disk_vocab))
+    ]
+    W2 = [
+        tensors["output_weight"][i * dim:(i + 1) * dim]
+        for i in range(len(disk_vocab))
+    ]
+    b2 = list(tensors["output_bias"])
+    disk_bos = disk_vocab.index(_LM_BOS)
+    disk_eos = disk_vocab.index(_LM_EOS)
+    sample_rng = random.Random(seed)
+    samples = []
+    for _ in range(3):
+        text = _lm_sample(
+            E2, W2, b2, disk_vocab, disk_bos, disk_eos, sample_rng
+        )
+        samples.append(text)
+        print(f"SAMPLE: {text}", flush=True)
+
+    payload = {
+        "scenario_id": config["scenario_id"],
+        "attempt": int(config["attempt"]),
+        "status": "succeeded",
+        "val_accuracy": None,
+        "eval_perplexity": round(final_ppl, 2),
+        "baseline_perplexity": round(baseline_ppl, 2),
+        "val_loss": round(final_loss, 4),
+        "global_step": step,
+        "checkpoint_path": str(ckpt),
+        "backend": config["backend"],
+        "per_worker_batch_size": int(config["per_worker_batch_size"]),
+        "gradient_accumulation_steps": int(
+            config["gradient_accumulation_steps"]
+        ),
+        "samples": samples,
+        "vocab_size": vocab_size,
+        "corpus_tokens": tokens_used,
+    }
+    _emit_result(payload)
+    return 0
+
+
+# --------------------------------------------------------------------------
 # Torch engine (real path; heavy imports are lazy, inside the functions)
 # --------------------------------------------------------------------------
 
@@ -676,6 +1104,16 @@ def build_trainer(config: dict):
 def main(config_path: str, engine: str = "torch") -> int:
     config = load_config(config_path)
     if engine == "smoke":
+        return run_smoke(config)
+    if str(config.get("task_type", "")) == "pretrain":
+        # The local demo pretrains with its built-in standard-library
+        # engine; there is no torch/Ray path for from-scratch LM
+        # pretraining.
+        print(
+            "note: task_type=pretrain uses the built-in "
+            "standard-library pretraining engine in the local demo",
+            flush=True,
+        )
         return run_smoke(config)
 
     seed = int(config["seed"])

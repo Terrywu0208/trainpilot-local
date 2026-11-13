@@ -85,6 +85,25 @@ runs and is tested with **no API key and no spend**. A real model can be
 plugged in by setting `TRAINPILOT_LLM_PROVIDER=openai` with your own
 key; nothing in this repository ever requires it.
 
+## Two kinds of training
+
+The agent runs both task types from plain-language requests:
+
+- **Fine-tune** — DistilBERT on SST-2 through the local demo pipeline
+  (the smoke backend simulates the run; the torch path is the real
+  one, see Honest status).
+- **Pretrain** — a tiny word-level language model trained **from
+  scratch, for real**: pure-stdlib stochastic gradient descent on the
+  bundled `tinytales` corpus (training/corpora/), a genuine
+  safetensors checkpoint with the trained weights, and verification
+  by held-out perplexity against the untrained baseline. One click in
+  the web console ("Pretrain a tiny LM from scratch") or one sentence:
+  *"Pretrain a tiny language model from scratch on the tinytales
+  corpus with 2 CPU workers."*
+
+Who each flow is designed for — and the four user journeys the
+verification drives execute — is in [docs/PERSONAS.md](docs/PERSONAS.md).
+
 ## Quickstart
 
 ```bash
@@ -122,6 +141,12 @@ python scripts/ui_walkthrough.py --base http://127.0.0.1:8000 --shots /tmp/ui-sh
   code-reviewed, not run-verified, until the Dec experiments.
 - The Kind/KubeRay manifests in `infra/` are provided and validated as
   YAML; executing them requires a Docker-capable machine.
+- Pretraining is **not** simulated: the tiny LM is trained by real
+  gradient descent in this sandbox (deterministic, seed 42), and its
+  perplexity improvement, divergence repair, and honest corpus
+  failures are covered by tests and persona drives. Its scale is
+  deliberately tiny — it demonstrates the full agent loop on a model
+  a laptop can genuinely train, not a production LM.
 - Experiment *results* (the Dec 8 headline numbers) are produced by
   `eval/report.py` from run artifacts; this repository ships the
   machinery and the frozen benchmark, not pre-baked results.

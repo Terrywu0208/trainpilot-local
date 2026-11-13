@@ -114,7 +114,7 @@ def default_stub_response(system: str, user: str) -> str:
         return json.dumps({
             "model_name": data.get("model_name", "distilbert-base-uncased"),
             "dataset": data.get("dataset", "sst2"),
-            "task_type": "fine_tune",
+            "task_type": data.get("task_type", "fine_tune"),
             "num_workers": data.get("num_workers", 2),
             "cpu_only": True,
             "max_memory_per_worker": "3Gi",
@@ -123,9 +123,11 @@ def default_stub_response(system: str, user: str) -> str:
         })
     if "planner" in role:
         data = _extract_json_block(user) or {}
+        task_type = data.get("task_type", "fine_tune")
         spec = {
             "model_name": data.get("model_name", "distilbert-base-uncased"),
             "dataset": data.get("dataset", "sst2"),
+            "task_type": task_type,
             "backend": "gloo",
             "per_worker_batch_size": 8,
             "gradient_accumulation_steps": 2,
@@ -133,8 +135,14 @@ def default_stub_response(system: str, user: str) -> str:
             "resources_per_worker_memory": "2Gi",
             "epochs": data.get("epochs", 1),
             "max_steps": 40,
-            "learning_rate": 2e-5,
+            "learning_rate": data.get("learning_rate") or (
+                0.1 if task_type == "pretrain" else 2e-5),
         }
+        train_subsample = data.get("train_subsample")
+        if train_subsample is None and task_type == "pretrain":
+            train_subsample = 100000
+        if train_subsample is not None:
+            spec["train_subsample"] = int(train_subsample)
         return json.dumps(spec)
     if "critic" in role or "diagnos" in role:
         return json.dumps(diagnose_log_text(user))
@@ -150,6 +158,40 @@ def diagnose_log_text(text: str) -> dict[str, Any]:
     Recognizes the fault signatures defined in section C of the design.
     """
     lowered = text.lower()
+    # Pretraining (tiny LM) signatures come first: the LM divergence log
+    # also matches the generic loss=nan rule below, and a missing corpus
+    # must never be "repaired" into a different one. Underscores are
+    # normalized to spaces so the trainer's CORPUS_NOT_AVAILABLE /
+    # CORPUS_TOO_SMALL signature codes match as well as prose lines.
+    spaced = lowered.replace("_", " ")
+    if "corpus" in spaced and (
+            "not available" in spaced or "not bundled" in spaced):
+        return {
+            "symptom": "requested corpus is not available locally",
+            "root_cause": "the named corpus is not bundled with the local demo",
+            "evidence": ["log line reports the corpus is not available"],
+            "error_class": "DATA_SCHEMA",
+            "proposed_fix": {},
+            "confidence": 0.9,
+        }
+    if "corpus too small" in spaced:
+        return {
+            "symptom": "pretraining stopped: corpus below the minimum size",
+            "root_cause": "token budget (train_subsample) below the corpus minimum for pretraining",
+            "evidence": ["log line reports the corpus is too small"],
+            "error_class": "DATA_SCHEMA",
+            "proposed_fix": {"train_subsample": 8192},
+            "confidence": 0.85,
+        }
+    if "perplexity" in spaced and ("nan" in spaced or "diverged" in spaced):
+        return {
+            "symptom": "language model loss became NaN (perplexity undefined)",
+            "root_cause": "learning rate far too high for the tiny LM",
+            "evidence": ["log line reports lm loss became nan"],
+            "error_class": "DATA_SCHEMA",
+            "proposed_fix": {"learning_rate": 0.1},
+            "confidence": 0.85,
+        }
     if "nccl" in lowered or "cuda" in lowered and "unavailable" in lowered \
             or "no cuda" in lowered or "gpu-only" in lowered:
         return {
