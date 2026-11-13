@@ -75,7 +75,7 @@ request ──> LangGraph agent (plan → code → preflight → approval gate
 | `benchmark/` | 200 data points, 60-prompt safety suite, 50-task lab set, freeze manifest |
 | `webapp/` | FastAPI app: run console, approval gates, SSE, replay, sessions |
 | `infra/` | Kind cluster, KubeRay operator values, RBAC, quotas, network policies |
-| `docs/` | Professor-standard mapping, deployment guide, design diagram, build contracts |
+| `docs/` | Professor-standard mapping, deployment guide, design diagram, build contracts, and the [operations & testing guide](docs/OPERATIONS.md) — every flow with real captured outputs |
 
 ## Zero-cost by design
 
