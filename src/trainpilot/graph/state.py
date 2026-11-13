@@ -58,6 +58,7 @@ class TrainPilotState(TypedDict, total=False):
     attempts_started: int  # number of launches actually performed
     max_attempts: int
     repair_cycles: int
+    verify_retry_attempt: int  # attempt index already re-verified once (-1 = none)
     route_decision: str  # replan | verify | give_up (set by repair_router)
     give_up_reason: str
     outcome: str  # succeeded | gave_up | rejected | budget_exceeded

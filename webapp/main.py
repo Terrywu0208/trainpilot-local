@@ -425,8 +425,33 @@ class RunManager:
         runs: dict[str, dict[str, Any]] = {}
         if self.runs_root.exists():
             for run_dir in sorted(self.runs_root.iterdir()):
+                if not run_dir.is_dir():
+                    continue
                 summary_file = run_dir / "summary.json"
-                if run_dir.is_dir() and summary_file.exists():
+                if not summary_file.exists():
+                    # A run directory with events but no summary belongs
+                    # to a run that was in flight when the server stopped
+                    # (restart, crash). Surface it as interrupted instead
+                    # of silently dropping it; its events stay replayable.
+                    if (run_dir / "events.jsonl").exists():
+                        request_text = ""
+                        request_file = run_dir / "request.json"
+                        if request_file.exists():
+                            try:
+                                request_text = json.loads(request_file.read_text(
+                                    encoding="utf-8")).get("request_text", "")
+                            except (ValueError, OSError):
+                                request_text = ""
+                        runs[run_dir.name] = {
+                            "run_id": run_dir.name,
+                            "session_id": "",
+                            "request_text": request_text,
+                            "status": "interrupted",
+                            "success": None,
+                            "attempts": None,
+                        }
+                    continue
+                if summary_file.exists():
                     try:
                         data = json.loads(
                             summary_file.read_text(encoding="utf-8"))

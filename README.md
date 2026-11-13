@@ -99,6 +99,9 @@ python3 -m venv .venv && .venv/bin/pip install -e ".[dev,webapp]"
 # Web app (local)
 .venv/bin/uvicorn webapp.main:app --port 8000
 # then open http://localhost:8000 — see docs/deployment.md for a public URL
+
+# Web app UI test (drives a real browser through the whole user flow)
+python scripts/ui_walkthrough.py --base http://127.0.0.1:8000 --shots /tmp/ui-shots
 ```
 
 ## Honest status

@@ -297,6 +297,19 @@ def run_smoke(config: dict) -> int:
     accum = int(config["gradient_accumulation_steps"])
     max_steps = int(config["max_steps"])
 
+    # The local demo bundles exactly one dataset (SST-2). Any other name
+    # is an honest failure, never a silent substitution.
+    dataset = str(config.get("dataset", "sst2")).lower().replace("-", "")
+    if dataset != "sst2":
+        return _smoke_fail(
+            config,
+            "DATASET_NOT_AVAILABLE",
+            [
+                f"ValueError: dataset '{config.get('dataset')}' is not "
+                "available in the local demo (only 'sst2' is bundled)"
+            ],
+        )
+
     # Effective-batch invariant (design C-1.2): repairs that leave the
     # invariant are invalid, so the trainer refuses to call them success.
     eff = effective_batch(config)

@@ -3,67 +3,229 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>TrainPilot-Local</title>
-<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+<title>TrainPilot-Local — Local CPU Demo Console</title>
 <style>
-  body { font-family: system-ui, sans-serif; margin: 0; background: #f6f7f9; color: #1c2333; }
-  header { background: #14213d; color: #fff; padding: 12px 20px; display: flex; gap: 16px; align-items: baseline; }
-  header h1 { font-size: 20px; margin: 0; }
-  header .sub { color: #b8c4de; font-size: 13px; }
-  nav { display: flex; gap: 8px; padding: 10px 20px 0; }
-  nav button { padding: 8px 14px; border: 1px solid #c6cdd9; background: #fff; border-radius: 8px 8px 0 0; cursor: pointer; }
+  :root {
+    --ink: #16213a; --muted: #5a6577; --line: #dbe2ef; --bg: #f4f6fa;
+    --blue: #2563eb; --blue-dark: #1e40af; --green: #16a34a; --green-bg: #f0fdf4;
+    --red: #dc2626; --red-bg: #fef2f2; --amber: #d97706; --amber-bg: #fffbeb;
+    --grey-bg: #eef1f6; --chip-bg: #1e293b;
+  }
+  * { box-sizing: border-box; }
+  body { font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+         margin: 0; background: var(--bg); color: var(--ink); }
+  header { background: #14213d; color: #fff; padding: 12px 20px;
+           display: flex; gap: 14px; align-items: center; flex-wrap: wrap; }
+  header h1 { font-size: 20px; margin: 0; white-space: nowrap; }
+  .mode-badge { background: #0ea5e9; color: #fff; font-weight: 700; font-size: 13px;
+                padding: 4px 12px; border-radius: 999px; white-space: nowrap; }
+  .chips { display: flex; gap: 8px; flex-wrap: wrap; margin-left: auto; }
+  .chip { background: var(--chip-bg); border: 1px solid #334155; color: #cbd5e1;
+          border-radius: 999px; padding: 4px 11px; font-size: 12px; font-weight: 600;
+          display: inline-flex; align-items: center; gap: 7px; white-space: nowrap; }
+  .chip .dot { width: 9px; height: 9px; border-radius: 50%; background: #94a3b8; flex: none; }
+  .chip .dot.on { background: #4ade80; } .chip .dot.off { background: #f87171; }
+  .chip .dot.busy { background: #60a5fa; animation: pulse 1s infinite; }
+  .chip .dot.wait { background: #fbbf24; animation: pulse 1s infinite; }
+  .chip .dot.bad { background: #f87171; }
+  header .sub { width: 100%; color: #b8c4de; font-size: 13px; }
+  nav { display: flex; gap: 8px; padding: 10px 20px 0; flex-wrap: wrap; }
+  nav button { padding: 9px 16px; border: 1px solid var(--line); background: #fff;
+               border-radius: 8px 8px 0 0; cursor: pointer; font-size: 14px; font-weight: 600; }
   nav button.active { background: #14213d; color: #fff; }
-  main { padding: 16px 20px 40px; }
-  .view { display: none; background: #fff; border: 1px solid #dde2ec; border-radius: 0 8px 8px 8px; padding: 16px; }
+  main { padding: 16px 20px 48px; }
+  .view { display: none; background: #fff; border: 1px solid var(--line);
+          border-radius: 0 8px 8px 8px; padding: 18px; }
   .view.active { display: block; }
+  .view.paused .dim { opacity: .45; pointer-events: none; transition: opacity .3s; }
+  h3 { margin: 20px 0 8px; } h3:first-child { margin-top: 0; }
   label { font-size: 13px; font-weight: 600; display: block; margin: 10px 0 4px; }
-  textarea, input, select { width: 100%; padding: 8px; border: 1px solid #c6cdd9; border-radius: 6px; box-sizing: border-box; }
+  textarea, input, select { width: 100%; padding: 9px; border: 1px solid #c6cdd9;
+                            border-radius: 6px; font: inherit; font-size: 14px; }
   .row { display: flex; gap: 12px; flex-wrap: wrap; }
-  .row > div { flex: 1; min-width: 140px; }
-  button.primary { background: #1d6f42; color: #fff; border: 0; padding: 10px 18px; border-radius: 6px; cursor: pointer; font-weight: 600; }
-  button.secondary { background: #e7ebf2; border: 1px solid #c6cdd9; padding: 10px 14px; border-radius: 6px; cursor: pointer; }
-  .session-bar { background: #eef3ff; border: 1px solid #c9d6f5; border-radius: 6px; padding: 8px 12px; font-size: 13px; margin-bottom: 12px; }
-  .nodes { display: flex; flex-wrap: wrap; gap: 6px; margin: 8px 0; }
-  .node { font-size: 12px; padding: 5px 9px; border-radius: 20px; background: #e7ebf2; color: #5a6577; border: 1px solid #c6cdd9; }
-  .node.running { background: #dbeafe; color: #1d4ed8; border-color: #93c5fd; animation: pulse 1s infinite; }
-  .node.ok { background: #dcfce7; color: #166534; border-color: #86efac; }
-  .node.fail { background: #fee2e2; color: #991b1b; border-color: #fca5a5; }
+  .row > div { flex: 1; min-width: 130px; }
+  button.primary { background: #1d6f42; color: #fff; border: 0; padding: 11px 20px;
+                   border-radius: 6px; cursor: pointer; font-weight: 700; font-size: 14px; }
+  button.primary:disabled { background: #9ca3af; cursor: not-allowed; }
+  button.secondary { background: #e7ebf2; border: 1px solid #c6cdd9; padding: 9px 14px;
+                     border-radius: 6px; cursor: pointer; font-weight: 600; }
+  .hint { color: var(--muted); font-size: 13px; margin: 6px 0 0; }
+  .presets { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 10px; align-items: center; }
+  .presets span { font-size: 13px; color: var(--muted); font-weight: 600; }
+  button.preset { background: #eef3ff; border: 1px solid #c9d6f5; color: var(--blue-dark);
+                  padding: 7px 12px; border-radius: 999px; cursor: pointer; font-size: 13px; }
+  button.preset:hover { background: #dbeafe; }
+  .session-bar { background: #eef3ff; border: 1px solid #c9d6f5; border-radius: 8px;
+                 padding: 10px 14px; font-size: 13px; margin-bottom: 14px;
+                 display: flex; gap: 14px; flex-wrap: wrap; align-items: center; }
+  .session-bar input { width: 200px; }
+  .ctx { display: inline-flex; align-items: center; gap: 7px; font-weight: 600; }
+  .ctx .dot { width: 9px; height: 9px; border-radius: 50%; background: #94a3b8; }
+  .ctx.on .dot { background: var(--green); } .ctx.ready .dot { background: var(--amber); }
+
+  /* ---- pipeline diagram ---- */
+  .pipe { display: flex; flex-wrap: wrap; align-items: stretch; gap: 4px; margin: 10px 0 4px; }
+  .pnode { min-width: 108px; flex: 1 1 108px; max-width: 150px; text-align: center;
+           padding: 8px 5px 7px; border-radius: 10px; border: 2px solid #cbd5e1;
+           background: var(--grey-bg); color: var(--muted); transition: all .25s; }
+  .pnode .plabel { display: block; font-size: 12.5px; font-weight: 700; line-height: 1.25; }
+  .pnode .praw { display: block; font-size: 10px; font-family: ui-monospace, Menlo, monospace;
+                 opacity: .75; margin-top: 2px; word-break: break-all; }
+  .pnode.active { border-color: var(--blue); background: #dbeafe; color: var(--blue-dark);
+                  animation: pulse 1s infinite; }
+  .pnode.done { border-color: var(--green); background: var(--green-bg); color: #166534; }
+  .pnode.failed { border-color: var(--red); background: var(--red-bg); color: #991b1b; }
+  .pnode.loop { box-shadow: 0 0 0 3px rgba(217,119,6,.45); border-color: var(--amber); }
+  .parr { align-self: center; color: #94a3b8; font-weight: 800; font-size: 15px; }
   @keyframes pulse { 50% { opacity: .55; } }
-  .timeline { display: flex; gap: 10px; margin: 12px 0; }
-  .tl-point { text-align: center; font-size: 12px; }
-  .tl-dot { width: 26px; height: 26px; border-radius: 50%; margin: 0 auto 4px; line-height: 26px; color: #fff; background: #94a3b8; }
-  .tl-dot.failed { background: #dc2626; } .tl-dot.succeeded { background: #16a34a; } .tl-dot.running { background: #2563eb; }
-  .card { border: 1px solid #dde2ec; border-radius: 8px; padding: 12px; margin: 10px 0; }
-  .card h4 { margin: 0 0 6px; }
-  pre.log { background: #0b1220; color: #d1e7ff; padding: 10px; border-radius: 6px; font-size: 12px; white-space: pre-wrap; max-height: 220px; overflow: auto; }
-  .diff-add { color: #15803d; } .diff-del { color: #b91c1c; }
-  .gate { border-radius: 8px; padding: 14px; margin: 12px 0; display: none; }
-  .gate.show { display: block; }
-  .gate1 { border: 2px solid #16a34a; background: #f0fdf4; }
-  .gate1 button.approve { background: #16a34a; color: #fff; border: 0; padding: 10px 18px; border-radius: 6px; cursor: pointer; font-weight: 700; }
-  .gate1 button.reject { background: #6b7280; color: #fff; border: 0; padding: 10px 14px; border-radius: 6px; cursor: pointer; }
-  .gate2 { border: 3px solid #dc2626; background: #fef2f2; }
-  .gate2 button.approve { background: #dc2626; color: #fff; border: 0; padding: 10px 18px; border-radius: 6px; cursor: pointer; font-weight: 700; }
-  .gate2 button.approve:disabled { background: #fca5a5; cursor: not-allowed; }
-  .gate2 button.reject { background: #fff; border: 2px solid #dc2626; color: #dc2626; padding: 8px 14px; border-radius: 6px; cursor: pointer; font-weight: 700; }
-  .verify { border-radius: 8px; padding: 14px; margin: 12px 0; display: none; }
-  .verify.show { display: block; }
-  .verify.passed { background: #dcfce7; border: 2px solid #16a34a; }
-  .verify.unverified { background: #fef9c3; border: 2px solid #ca8a04; }
+  .loop-strip { display: none; background: var(--amber-bg); border: 1.5px dashed var(--amber);
+                color: #92400e; border-radius: 8px; padding: 9px 13px; font-size: 13.5px;
+                margin: 8px 0 2px; }
+  .loop-strip.show { display: block; }
+  .plan-card { display: none; border: 1px solid var(--line); border-radius: 8px;
+               padding: 12px; margin: 10px 0; background: #fbfcfe; }
+  .plan-card.show { display: block; }
+
+  /* ---- attempt story ---- */
+  .story { display: flex; gap: 6px; flex-wrap: wrap; align-items: stretch; margin: 10px 0; }
+  .acard { width: 258px; border: 1.5px solid var(--line); border-top: 6px solid #94a3b8;
+           border-radius: 10px; padding: 11px 12px; background: #fff; }
+  .acard.running { border-top-color: var(--blue); }
+  .acard.failed { border-top-color: var(--red); background: #fffafa; }
+  .acard.succeeded { border-top-color: var(--green); background: #fbfffc; }
+  .acard .ahead { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; }
+  .acard .ahead b { font-size: 14.5px; }
+  .badge { font-size: 11px; font-weight: 800; letter-spacing: .4px; padding: 2.5px 8px;
+           border-radius: 999px; text-transform: uppercase; white-space: nowrap; }
+  .badge.running { background: #dbeafe; color: var(--blue-dark); }
+  .badge.failed { background: #fee2e2; color: #991b1b; }
+  .badge.succeeded { background: #dcfce7; color: #166534; }
+  .acard .ameta { color: var(--muted); font-size: 12px; margin-top: 3px; }
+  .acard pre.log { background: #0b1220; color: #d1e7ff; padding: 8px; border-radius: 6px;
+                   font-size: 11.5px; white-space: pre-wrap; max-height: 130px; overflow: auto;
+                   margin: 8px 0 0; }
+  .diag { margin-top: 9px; border-top: 1px dashed var(--line); padding-top: 8px; font-size: 13px; }
+  .diag .frow { margin: 3px 0; }
+  .mono { font-family: ui-monospace, Menlo, monospace; font-size: 12px;
+          background: #f1f5f9; padding: 1px 5px; border-radius: 4px; }
+  .fixchip { display: inline-block; margin-top: 6px; background: var(--green-bg);
+             border: 1px solid #86efac; color: #166534; border-radius: 6px;
+             padding: 4px 8px; font-size: 12.5px; font-weight: 600; }
+  .accbig { font-size: 24px; font-weight: 800; color: #166534; margin-top: 6px; }
+  .aarrow { align-self: center; color: #94a3b8; font-size: 20px; font-weight: 800; }
+  .empty-note { color: var(--muted); font-size: 13.5px; border: 1.5px dashed var(--line);
+                border-radius: 8px; padding: 12px; }
+
+  /* ---- verdict + verification ---- */
+  .verdict { display: none; border-radius: 10px; padding: 14px 16px; margin: 14px 0; }
+  .verdict.show { display: block; }
+  .verdict.ok { background: #dcfce7; border: 2px solid var(--green); color: #14532d; }
+  .verdict.bad { background: #fee2e2; border: 2px solid var(--red); color: #7f1d1d; }
+  .verdict.warn { background: #fef3c7; border: 2px solid var(--amber); color: #78350f; }
+  .verdict .vtitle { font-size: 17px; font-weight: 800; }
+  .verdict .vsub { font-size: 13.5px; font-weight: 400; margin-top: 4px; white-space: pre-wrap; }
+  .vgrid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+           gap: 10px; margin: 10px 0; }
+  .vbadge { border: 2px solid #cbd5e1; border-radius: 10px; padding: 12px 14px; background: #f8fafc; }
+  .vbadge .vic { font-size: 25px; line-height: 1; }
+  .vbadge .vlab { font-weight: 700; font-size: 13.5px; margin-top: 5px; }
+  .vbadge .vnote { color: var(--muted); font-size: 12px; margin-top: 2px; }
+  .vbadge.ok { border-color: var(--green); background: var(--green-bg); }
+  .vbadge.no { border-color: var(--red); background: var(--red-bg); }
+  .vbadge .accnum { font-size: 27px; font-weight: 800; margin-top: 2px; }
+  .meter { margin-top: 7px; }
+
+  /* ---- approval modal ---- */
+  .overlay { position: fixed; inset: 0; background: rgba(15,23,42,.55); display: none;
+             z-index: 60; align-items: center; justify-content: center; padding: 16px; }
+  .overlay.show { display: flex; }
+  .modal { background: #fff; border-radius: 12px; max-width: 540px; width: 100%;
+           padding: 20px 22px; border-top: 9px solid var(--blue);
+           box-shadow: 0 18px 50px rgba(0,0,0,.35); animation: pulse 1.6s infinite; }
+  .modal.g2 { border-top-color: var(--red); }
+  .modal h3 { margin: 0 0 6px; font-size: 18px; }
+  .modal .gatesub { font-size: 13px; font-weight: 700; letter-spacing: .4px; text-transform: uppercase; }
+  .modal.g1 .gatesub { color: var(--blue-dark); } .modal.g2 .gatesub { color: var(--red); }
+  .modal .adesc { font-size: 14.5px; margin: 8px 0; }
+  .modal pre.args { background: #0b1220; color: #d1e7ff; padding: 9px; border-radius: 6px;
+                    font-size: 12px; white-space: pre-wrap; max-height: 150px; overflow: auto; }
+  .modal .mrow { display: flex; gap: 10px; margin-top: 14px; flex-wrap: wrap; }
+  .modal button.approve { color: #fff; border: 0; padding: 11px 18px; border-radius: 6px;
+                          cursor: pointer; font-weight: 700; font-size: 14px; }
+  .modal.g1 button.approve { background: var(--blue); }
+  .modal.g2 button.approve { background: var(--red); }
+  .modal button.approve:disabled { background: #fca5a5; cursor: not-allowed; }
+  .modal button.reject { background: #fff; border: 2px solid #6b7280; color: #374151;
+                         padding: 9px 16px; border-radius: 6px; cursor: pointer; font-weight: 700; }
+  .modal.g2 button.reject { border-color: var(--red); color: var(--red); }
+  .modal label.confirm { font-weight: 400; display: flex; gap: 8px; align-items: center;
+                         margin-top: 10px; font-size: 14px; }
+  .modal label.confirm input { width: auto; }
+
+  /* ---- tables, kpis, charts ---- */
   table { border-collapse: collapse; width: 100%; font-size: 13px; }
-  th, td { border: 1px solid #dde2ec; padding: 6px 8px; text-align: left; }
-  .kpis { display: flex; gap: 10px; flex-wrap: wrap; }
-  .kpi { flex: 1; min-width: 130px; background: #eef3ff; border: 1px solid #c9d6f5; border-radius: 8px; padding: 10px; }
-  .kpi .v { font-size: 20px; font-weight: 700; }
-  .watermark { display: none; background: #b45309; color: #fff; font-weight: 800; letter-spacing: 2px; padding: 4px 12px; border-radius: 4px; }
-  .watermark.show { display: inline-block; }
-  .muted { color: #5a6577; font-size: 13px; }
+  th, td { border: 1px solid var(--line); padding: 6px 8px; text-align: left; vertical-align: top; }
+  th { background: #f1f5f9; }
+  .kpis { display: flex; gap: 10px; flex-wrap: wrap; margin: 10px 0; }
+  .kpi { flex: 1; min-width: 140px; background: #eef3ff; border: 1px solid #c9d6f5;
+         border-radius: 8px; padding: 10px 12px; }
+  .kpi .v { font-size: 20px; font-weight: 800; }
+  .kpi .k { font-size: 12px; color: var(--muted); font-weight: 600; }
+  .tiles { display: flex; gap: 10px; flex-wrap: wrap; margin: 8px 0 14px; }
+  .tile { min-width: 128px; flex: 1; border: 1.5px solid var(--line); border-radius: 8px;
+          padding: 9px 12px; background: #fbfcfe; }
+  .tile .v { font-size: 21px; font-weight: 800; }
+  .tile .k { font-size: 11.5px; color: var(--muted); font-weight: 700; text-transform: uppercase;
+             letter-spacing: .3px; }
+  .tile.good .v { color: #166534; } .tile.bad .v { color: #991b1b; }
+  .chartbox { border: 1px solid var(--line); border-radius: 8px; padding: 12px 14px; margin: 12px 0; }
+  .chartbox h4 { margin: 0 0 8px; }
+  .ptable td:first-child { font-weight: 600; width: 190px; background: #f8fafc; }
+  pre.codeblock { background: #0b1220; color: #d1e7ff; padding: 12px; border-radius: 6px;
+                  font-size: 12.5px; white-space: pre-wrap; overflow: auto; }
+
+  /* ---- replay ---- */
+  .stage { position: relative; border: 1px solid var(--line); border-radius: 10px;
+           padding: 14px; overflow: hidden; background: #fff; }
+  .wm-giant { position: absolute; inset: 0; display: none; align-items: center; justify-content: center;
+              font-size: 84px; font-weight: 900; letter-spacing: 10px; color: rgba(180,83,9,.09);
+              transform: rotate(-14deg); pointer-events: none; user-select: none; }
+  .wm-giant.show { display: flex; }
+  .wm-badge { position: absolute; top: 10px; right: 12px; display: none; background: #b45309;
+              color: #fff; font-weight: 800; letter-spacing: 2px; padding: 4px 12px;
+              border-radius: 4px; z-index: 3; }
+  .wm-badge.show { display: inline-block; }
+  .progress { height: 11px; background: #e2e8f0; border-radius: 6px; overflow: hidden; margin: 10px 0 4px; }
+  .progress > div { height: 100%; background: var(--amber); width: 0%; transition: width .2s; }
+  .runs-list { width: 100%; }
+  .runs-list tr.clickable { cursor: pointer; } .runs-list tr.clickable:hover { background: #eef3ff; }
+  .status-pill { font-size: 11px; font-weight: 800; padding: 2px 8px; border-radius: 999px;
+                 text-transform: uppercase; letter-spacing: .3px; }
+  .status-pill.queued { background: #e2e8f0; color: #475569; }
+  .status-pill.running { background: #dbeafe; color: var(--blue-dark); }
+  .status-pill.awaiting_approval { background: #fef3c7; color: #92400e; }
+  .status-pill.finished { background: #dcfce7; color: #166534; }
+  .status-pill.error { background: #fee2e2; color: #991b1b; }
+  details.eventlog { margin-top: 16px; }
+  details.eventlog summary { cursor: pointer; font-weight: 700; font-size: 14px; }
+  pre.eventlog { background: #0b1220; color: #a5c8f0; padding: 10px; border-radius: 6px;
+                 font-size: 11.5px; white-space: pre-wrap; max-height: 260px; overflow: auto; }
+  .muted { color: var(--muted); font-size: 13px; }
+  @media (max-width: 640px) { .acard { width: 100%; } header h1 { font-size: 17px; } }
 </style>
 </head>
 <body>
 <header>
   <h1>TrainPilot-Local</h1>
-  <span class="sub">An agent that repairs KubeRay training runs &mdash; plan, diagnose, repair, verify. Nothing irreversible happens without a human.</span>
+  <span class="mode-badge">Local &middot; CPU-only demo</span>
+  <div class="chips">
+    <span class="chip"><span class="dot" id="chip-server-dot"></span><span id="chip-server">Server: checking&hellip;</span></span>
+    <span class="chip"><span class="dot on"></span><span>LLM: stub &middot; offline (no API calls, no cost)</span></span>
+    <span class="chip"><span class="dot" id="chip-run-dot"></span><span id="chip-run">Run: idle</span></span>
+  </div>
+  <div class="sub">An agent that repairs local CPU training runs &mdash; plan, diagnose, repair, verify.
+  Everything runs on this machine against a local CPU setup (DistilBERT on SST-2, 2 CPU workers).
+  Nothing irreversible happens without a human approving it first.</div>
 </header>
 <nav>
   <button data-view="console" class="active">Run Console</button>
@@ -76,58 +238,73 @@
 <!-- ============ View 1: Run Console ============ -->
 <section id="view-console" class="view active">
   <div class="session-bar">
-    Session: <input id="session-id" style="width:220px;display:inline-block" value="demo-session">
-    <div id="session-summary" class="muted">No previous run in this session yet. Follow-up requests will carry the previous run's summary as context.</div>
+    <span><label for="session-id" style="display:inline;margin:0">Session:</label>
+      <input id="session-id" value="demo-session"></span>
+    <span class="ctx" id="session-ctx"><span class="dot"></span><span id="session-ctx-text">Session context: none yet &mdash; this session has not completed a run.</span></span>
   </div>
 
-  <h3>Request</h3>
-  <label for="request-text">What should the agent do?</label>
-  <textarea id="request-text" rows="2">Fine-tune DistilBERT on SST-2 with a RayJob on Kind, two CPU workers</textarea>
-  <div class="row">
-    <div><label>Model</label>
-      <select id="f-model"><option>distilbert-base-uncased</option></select></div>
-    <div><label>Dataset</label>
-      <select id="f-dataset"><option>sst2</option></select></div>
-    <div><label>Workers</label><input id="f-workers" type="number" value="2"></div>
-    <div><label>Epochs</label><input id="f-epochs" type="number" value="1"></div>
-    <div><label>Batch / worker</label><input id="f-batch" type="number" value="8"></div>
+  <div class="dim" id="console-dim">
+    <h3>Request</h3>
+    <label for="request-text">What should the agent do?</label>
+    <textarea id="request-text" rows="2">Fine-tune DistilBERT on SST-2 with 2 CPU workers</textarea>
+    <p class="hint">Runs entirely on local CPU: a DistilBERT fine-tune on SST-2, submitted as a job
+    with 2 CPU workers. The agent plans the run, launches it, and repairs failures within
+    3 attempts &mdash; then an independent verifier checks the checkpoint before anything
+    is called a success.</p>
+    <div class="presets">
+      <span>Presets:</span>
+      <button type="button" class="preset" id="preset-canonical">Canonical fine-tune</button>
+      <button type="button" class="preset" id="preset-followup">Follow-up: run 3 epochs (same session)</button>
+    </div>
+    <div class="row">
+      <div><label>Model</label>
+        <select id="f-model"><option>distilbert-base-uncased</option></select></div>
+      <div><label>Dataset</label>
+        <select id="f-dataset"><option>sst2</option></select></div>
+      <div><label>CPU workers</label><input id="f-workers" type="number" value="2" min="1"></div>
+      <div><label>Epochs</label><input id="f-epochs" type="number" value="1" min="1"></div>
+      <div><label>Batch / worker</label><input id="f-batch" type="number" value="8" min="1"></div>
+    </div>
+    <p><button class="primary" id="btn-run">Start run</button>
+       <span id="run-status" class="muted">No run yet. Runs execute one at a time; a new run queues while another is active.</span></p>
+    <div id="plan-summary" class="plan-card"></div>
+
+    <h3>Agent pipeline &mdash; live</h3>
+    <div class="pipe" id="plan-nodes"></div>
+    <div class="loop-strip" id="loop-strip"></div>
+
+    <h3>Run story &mdash; attempts</h3>
+    <div class="story" id="story"><div class="empty-note" id="story-empty">No attempts yet. Start a run and each attempt will appear here as a card: failures show the diagnosis and the fix that gets applied next; the final card shows the verified accuracy.</div></div>
+
+    <div class="verdict" id="verdict"></div>
+
+    <h3>Final verification</h3>
+    <div class="vgrid" id="vgrid">
+      <div class="vbadge" id="vb-exists"><div class="vic">&#8226;</div><div class="vlab">Checkpoint exists</div><div class="vnote">Waiting for a result&hellip;</div></div>
+      <div class="vbadge" id="vb-loadable"><div class="vic">&#8226;</div><div class="vlab">Checkpoint loadable</div><div class="vnote">Waiting for a result&hellip;</div></div>
+      <div class="vbadge" id="vb-accuracy"><div class="vic">&#8226;</div><div class="vlab">Validation accuracy</div><div class="vnote">Status: UNVERIFIED &mdash; no result yet.</div><div class="meter" id="acc-meter"></div></div>
+      <div class="vbadge" id="vb-config"><div class="vic">&#8226;</div><div class="vlab">Config honors request</div><div class="vnote">Waiting for a result&hellip;</div></div>
+    </div>
+
+    <h3>Recent runs</h3>
+    <table class="runs-list"><thead><tr><th>Run</th><th>Status</th><th>Success</th><th>Attempts</th><th>Request</th></tr></thead>
+    <tbody id="runs-rows"><tr><td colspan="5" class="muted">Loading&hellip;</td></tr></tbody></table>
   </div>
-  <p><button class="primary" id="btn-run">Start run</button>
-     <span id="run-status" class="muted"></span></p>
-  <div id="plan-summary" class="card" style="display:none"></div>
 
-  <h3>Live Plan</h3>
-  <div class="nodes" id="plan-nodes"></div>
-
-  <h3>Attempts</h3>
-  <div class="timeline" id="timeline"></div>
-  <div id="attempt-cards"></div>
-
-  <div id="gate1" class="gate gate1">
-    <h4>Gate 1 &mdash; Approve first launch</h4>
-    <p id="gate1-desc"></p>
-    <button class="approve" id="gate1-approve">Approve Launch</button>
-    <button class="reject" id="gate1-reject">Reject &amp; Stop</button>
-  </div>
-  <div id="gate2" class="gate gate2">
-    <h4>Gate 2 &mdash; Irreversible action</h4>
-    <p id="gate2-desc"></p>
-    <div id="gate2-files"></div>
-    <label style="font-weight:400"><input type="checkbox" id="gate2-confirm" style="width:auto">
-      I understand this cannot be undone</label>
-    <p><button class="approve" id="gate2-approve" disabled>Approve Irreversible Action</button>
-       <button class="reject" id="gate2-reject">Reject</button></p>
-  </div>
-
-  <div id="verify" class="verify"></div>
+  <details class="eventlog" id="event-log-wrap">
+    <summary>Event log (raw SSE events, for debugging)</summary>
+    <pre class="eventlog" id="event-log"></pre>
+  </details>
 </section>
 
 <!-- ============ View 2: Failure Memory ============ -->
 <section id="view-failures" class="view">
   <h3>Failure Memory Viewer</h3>
-  <p class="muted">Every diagnosis the agent has recorded. The critic consults this
+  <p class="muted">Every diagnosis the agent has recorded across runs. The critic consults this
   memory on later runs, but still needs fresh log evidence before reusing a fix.</p>
-  <input id="failure-search" placeholder="Filter by fault label...">
+  <label for="failure-search">Filter by fault family or root cause</label>
+  <input id="failure-search" placeholder="e.g. OOMKILLED_137">
+  <p class="muted" id="failure-count"></p>
   <table><thead><tr><th>Fault label</th><th>Root cause</th><th>Evidence</th>
   <th>Fix</th><th>Run</th></tr></thead><tbody id="failure-rows"></tbody></table>
 </section>
@@ -135,261 +312,868 @@
 <!-- ============ View 3: Benchmark Dashboard ============ -->
 <section id="view-benchmark" class="view">
   <h3>Benchmark Dashboard</h3>
-  <p class="muted" id="benchmark-note">Numbers come from the Section D evaluation
-  harness (reports/final/summary.json). The webapp never recomputes them.</p>
-  <div class="kpis" id="kpis"></div>
-  <canvas id="family-chart" height="140"></canvas>
-  <pre id="benchmark-raw" class="log" style="display:none"></pre>
+  <p class="muted">Numbers come from the evaluation harness (reports/final/summary.json),
+  measured on this local CPU setup with the stub LLM provider. The web app never recomputes them.</p>
+  <div id="benchmark-body"><p class="muted">Loading&hellip;</p></div>
 </section>
 
 <!-- ============ View 4: Replay ============ -->
 <section id="view-replay" class="view">
-  <h3>Replay <span id="replay-watermark" class="watermark">REPLAY</span></h3>
-  <p class="muted">Replays a finished run's persisted events at 8x speed. No cluster is touched.</p>
+  <h3>Replay a finished run</h3>
+  <p class="muted">Replays a finished run's persisted events at 8&times; speed. Nothing is re-executed &mdash;
+  this is a playback of the recorded event stream, clearly watermarked so it can never be mistaken for a live run.</p>
   <div class="row">
     <div><label>Finished run</label><select id="replay-run"></select></div>
     <div style="flex:0"><label>&nbsp;</label><button class="primary" id="btn-replay">Play Replay</button></div>
   </div>
-  <div class="timeline" id="replay-timeline"></div>
-  <div id="replay-cards"></div>
+  <div class="stage" id="replay-stage">
+    <div class="wm-giant" id="replay-giant">REPLAY</div>
+    <span class="wm-badge" id="replay-watermark">REPLAY &middot; 8&times;</span>
+    <div class="muted" id="replay-status">Pick a run and press Play Replay.</div>
+    <div class="progress"><div id="replay-bar"></div></div>
+    <div class="muted" id="replay-progress-text"></div>
+    <h3>Pipeline</h3>
+    <div class="pipe" id="replay-nodes"></div>
+    <div class="loop-strip" id="replay-loop-strip"></div>
+    <h3>Attempts</h3>
+    <div class="story" id="replay-story"><div class="empty-note">No replay yet.</div></div>
+  </div>
 </section>
 
 </main>
+
+<!-- ============ Approval modal ============ -->
+<div class="overlay" id="gate-overlay">
+  <div class="modal" id="gate-modal">
+    <div class="gatesub" id="gate-kind"></div>
+    <h3 id="gate-title"></h3>
+    <p class="adesc" id="gate-desc"></p>
+    <div id="gate-files"></div>
+    <pre class="args" id="gate-args" style="display:none"></pre>
+    <label class="confirm" id="gate-confirm-row" style="display:none">
+      <input type="checkbox" id="gate-confirm"> I understand this cannot be undone</label>
+    <div class="mrow">
+      <button class="approve" id="gate-approve"></button>
+      <button class="reject" id="gate-reject"></button>
+    </div>
+    <p class="muted" id="gate-note"></p>
+  </div>
+</div>
+
 <script>
 "use strict";
+/* ================= helpers ================= */
+const $ = id => document.getElementById(id);
+const esc = s => String(s === null || s === undefined ? "" : s)
+  .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
+  .replace(/"/g, "&quot;");
+const fmtTs = ts => { try { return new Date(ts).toLocaleTimeString("en-GB") + "." +
+  String(new Date(ts).getMilliseconds()).padStart(3, "0"); } catch (e) { return String(ts || ""); } };
+const pct = v => (v === null || v === undefined || isNaN(v)) ? "—" : (Math.round(v * 1000) / 10) + "%";
+const num = (v, d) => (v === null || v === undefined || isNaN(v)) ? "—" : Number(v).toFixed(d === undefined ? 3 : d);
+
 const NODES = ["intake_profiler","planner","coder","preflight_validator","approval_gate",
   "executor","monitor_poller","log_collector","critic","repair_router","verifier","final_reporter"];
-let currentRunId = null, liveSource = null, replaySource = null;
+const NODE_LABELS = { intake_profiler: "Intake", planner: "Planner", coder: "Coder",
+  preflight_validator: "Preflight check", approval_gate: "Approval gate", executor: "Executor",
+  monitor_poller: "Monitor", log_collector: "Log collector", critic: "Critic",
+  repair_router: "Repair router", verifier: "Verifier", final_reporter: "Final report" };
+const ACC_THRESHOLD = 0.80;
 
-// ---- view switching ----
+/* ================= pipeline rendering ================= */
+function buildPipe(el) {
+  el.innerHTML = "";
+  NODES.forEach((n, i) => {
+    if (i > 0) { const a = document.createElement("span"); a.className = "parr"; a.textContent = "→"; el.appendChild(a); }
+    const d = document.createElement("div");
+    d.className = "pnode"; d.id = el.id + "-node-" + n; d.title = n;
+    d.innerHTML = '<span class="plabel">' + esc(NODE_LABELS[n] || n) + '</span>' +
+                  '<span class="praw">' + esc(n) + "</span>";
+    el.appendChild(d);
+  });
+}
+function setNode(pipeEl, name, cls) {
+  const el = document.getElementById(pipeEl.id + "-node-" + name);
+  if (!el) return;
+  el.classList.remove("active", "done", "failed");
+  if (cls) el.classList.add(cls);
+}
+function resetPipe(pipeEl) {
+  NODES.forEach(n => { setNode(pipeEl, n, ""); loopMark(pipeEl, n, false); });
+}
+function loopMark(pipeEl, name, on) {
+  const el = document.getElementById(pipeEl.id + "-node-" + name);
+  if (el) el.classList.toggle("loop", !!on);
+}
+buildPipe($("plan-nodes"));
+buildPipe($("replay-nodes"));
+
+/* ================= per-stream render context ================= */
+function makeCtx(prefix, pipeEl, storyEl, loopEl) {
+  return { prefix: prefix, pipe: pipeEl, story: storyEl, loop: loopEl,
+           attempts: new Map(), diagnoses: new Map(), openAttempt: 0,
+           maxAttempt: 0, sawAttemptEvents: false };
+}
+const liveCtx = makeCtx("live", $("plan-nodes"), $("story"), $("loop-strip"));
+const replayCtx = makeCtx("rp", $("replay-nodes"), $("replay-story"), $("replay-loop-strip"));
+
+function resetCtx(ctx) {
+  ctx.attempts.clear(); ctx.diagnoses.clear(); ctx.openAttempt = 0;
+  ctx.maxAttempt = 0; ctx.sawAttemptEvents = false;
+  resetPipe(ctx.pipe);
+  ctx.loop.classList.remove("show"); ctx.loop.textContent = "";
+  ctx.story.innerHTML = '<div class="empty-note">Waiting for the first attempt&hellip;</div>';
+}
+
+function ensureAttempt(ctx, n) {
+  if (!n || n < 1) n = ctx.maxAttempt + 1;
+  if (!ctx.attempts.has(n)) {
+    ctx.attempts.set(n, { n: n, status: "running", logs: "", fix: null, duration: null });
+    ctx.maxAttempt = Math.max(ctx.maxAttempt, n);
+    renderStory(ctx);
+  }
+  return ctx.attempts.get(n);
+}
+function currentAttempt(ctx) {
+  if (ctx.openAttempt && ctx.attempts.has(ctx.openAttempt)) return ctx.attempts.get(ctx.openAttempt);
+  if (ctx.maxAttempt) return ctx.attempts.get(ctx.maxAttempt);
+  return null;
+}
+function attachDiagnosis(ctx, n, diag) {
+  if (!diag) return;
+  const target = (n && ctx.attempts.has(n)) ? n : (currentAttempt(ctx) || {}).n;
+  if (!target) return;
+  ctx.diagnoses.set(target, diag);
+  const a = ctx.attempts.get(target);
+  if (a && a.status === "running") a.status = "failed";
+  renderStory(ctx);
+  const fix = diag.proposed_fix_code || diag.fix_code || "";
+  ctx.loop.innerHTML = "&#8635; <strong>Repair loop engaged</strong> &mdash; attempt " + target +
+    " failed. The critic diagnosed <span class='mono'>" + esc(diag.root_cause_code || diag.fault_label || "unknown") +
+    "</span>" + (fix ? "; repair router applies <span class='mono'>" + esc(fix) + "</span>" : "") +
+    " and the planner re-plans for attempt " + (target + 1) + ".";
+  ctx.loop.classList.add("show");
+  ["critic", "repair_router", "planner"].forEach(n => loopMark(ctx.pipe, n, true));
+}
+function renderStory(ctx) {
+  const list = [...ctx.attempts.values()].sort((a, b) => a.n - b.n);
+  if (!list.length) return;
+  ctx.story.innerHTML = "";
+  list.forEach((a, idx) => {
+    if (idx > 0) { const ar = document.createElement("div"); ar.className = "aarrow"; ar.textContent = "→"; ctx.story.appendChild(ar); }
+    const card = document.createElement("div");
+    card.className = "acard " + a.status;
+    const diag = ctx.diagnoses.get(a.n);
+    let h = '<div class="ahead"><b>Attempt ' + a.n + '</b><span class="badge ' + a.status + '">' +
+            esc(a.status) + "</span></div>";
+    if (a.duration !== null && a.duration !== undefined)
+      h += '<div class="ameta">duration: ' + esc(a.duration) + "s</div>";
+    if (a.accuracy !== null && a.accuracy !== undefined)
+      h += '<div class="accbig">' + num(a.accuracy, 4) + '</div><div class="ameta">validation accuracy (verified)</div>';
+    if (diag) {
+      h += '<div class="diag"><div class="frow"><strong>Diagnosis:</strong> ' +
+           esc(diag.fault_family || "") + '</div><div class="frow">Root cause: <span class="mono">' +
+           esc(diag.root_cause_code || "") + "</span></div>";
+      if (diag.evidence && diag.evidence.length)
+        h += '<div class="frow muted">Evidence: ' + esc(diag.evidence.join("; ")) + "</div>";
+      const fixCode = diag.proposed_fix_code || diag.fix_code;
+      if (fixCode) h += '<span class="fixchip">Fix applied next: ' + esc(fixCode) + "</span>";
+      h += "</div>";
+    }
+    if (a.fix && Object.keys(a.fix).length) {
+      h += '<div class="diag"><div class="frow"><strong>Config changes:</strong></div>' +
+        Object.entries(a.fix).map(([k, v]) =>
+          '<div class="frow" style="color:#15803d">+ ' + esc(k) + ": " + esc(v) + "</div>").join("") + "</div>";
+    }
+    if (a.logs) h += '<pre class="log"></pre>';
+    card.innerHTML = h;
+    if (a.logs) card.querySelector("pre.log").textContent = a.logs;
+    ctx.story.appendChild(card);
+  });
+}
+
+/* ================= event log ================= */
+function logEvent(scope, ev) {
+  if (scope !== "live") return;
+  const pre = $("event-log");
+  const line = fmtTs(ev.timestamp) + "  " + ev.type + "  " +
+    JSON.stringify(ev.payload || {}).slice(0, 220) + "\n";
+  pre.textContent = (pre.textContent + line).slice(-24000);
+  pre.scrollTop = pre.scrollHeight;
+}
+
+/* ================= run status chip + session indicator ================= */
+function setRunChip(state, text) {
+  $("chip-run").textContent = "Run: " + text;
+  const dot = $("chip-run-dot");
+  dot.className = "dot " + ({ idle: "", queued: "", running: "busy", awaiting: "wait",
+    finished: "on", error: "bad" }[state] || "");
+}
+function setSessionCtx(mode, text) {
+  const el = $("session-ctx");
+  el.className = "ctx" + (mode === "on" ? " on" : mode === "ready" ? " ready" : "");
+  $("session-ctx-text").textContent = text;
+}
+
+/* ================= approval modal ================= */
+const gateQueue = [];
+let gateCurrent = null; // {runId, gate, action, irreversible}
+function enqueueGate(runId, gate, action, irreversible) {
+  // Only events that carry a non-empty `gate` name are real, actionable
+  // approval gates. Graph-shaped approval_required events have no `gate`
+  // field: they are informational echoes of the same decision the webapp
+  // gate event already represents, so they must never open a modal.
+  if (!gate) return;
+  if (gateCurrent && gateCurrent.runId === runId && gateCurrent.gate === gate) return;
+  if (gateQueue.some(g => g.runId === runId && g.gate === gate)) return;
+  gateQueue.push({ runId: runId, gate: gate, action: action || {},
+    irreversible: !!(irreversible || (action && action.irreversible)) });
+  if (!gateCurrent) showNextGate();
+}
+function removeGate(runId, gateName) {
+  // An approval_decided event retires that gate wherever it sits: queued
+  // or currently displayed.
+  for (let i = gateQueue.length - 1; i >= 0; i--) {
+    if (gateQueue[i].runId === runId && gateQueue[i].gate === gateName) gateQueue.splice(i, 1);
+  }
+  if (gateCurrent && gateCurrent.runId === runId && gateCurrent.gate === gateName) {
+    gateCurrent = null;
+    showNextGate();
+    if (!gateCurrent) setRunChip("running", "running");
+  }
+}
+function clearGatesForRun(runId) {
+  // A run in a terminal state can never be waiting on a gate: drop any
+  // queued gates for it and hide the overlay if it was showing one.
+  for (let i = gateQueue.length - 1; i >= 0; i--) {
+    if (gateQueue[i].runId === runId) gateQueue.splice(i, 1);
+  }
+  if (gateCurrent && gateCurrent.runId === runId) {
+    gateCurrent = null;
+    showNextGate(); // hides the overlay when nothing actionable remains
+  }
+}
+function showNextGate() {
+  gateCurrent = gateQueue.shift() || null;
+  const overlay = $("gate-overlay"), modal = $("gate-modal");
+  if (!gateCurrent) { overlay.classList.remove("show"); $("view-console").classList.remove("paused"); return; }
+  // Classify from the event's own data (its gate name and irreversible
+  // flag), never from queue position or arrival order.
+  const isG2 = gateCurrent.gate === "gate2_irreversible" || gateCurrent.irreversible === true;
+  const action = gateCurrent.action;
+  modal.className = "modal " + (isG2 ? "g2" : "g1");
+  $("gate-kind").textContent = isG2 ? "Gate 2 of 2 — irreversible action" : "Gate 1 of 2 — first launch";
+  $("gate-title").textContent = isG2 ? "Approve an irreversible action?" : "Approve the first launch?";
+  $("gate-desc").textContent = action.description || (isG2
+    ? "The agent wants to perform an action that cannot be undone."
+    : "The agent wants to launch this training run for the first time.");
+  const files = $("gate-files");
+  if (action.args && Array.isArray(action.args.paths) && action.args.paths.length) {
+    files.innerHTML = "<strong>Will delete:</strong><ul>" +
+      action.args.paths.map(p => "<li>" + esc(p) + "</li>").join("") + "</ul>" +
+      (action.args.total_mb ? "<div>Total: " + esc(action.args.total_mb) + " MB</div>" : "");
+  } else files.innerHTML = "";
+  const detail = {};
+  if (action.tool_name) detail.tool = action.tool_name;
+  if (action.action_type) detail.action_type = action.action_type;
+  if (action.args && !Array.isArray(action.args.paths)) detail.args = action.args;
+  const argsEl = $("gate-args");
+  if (Object.keys(detail).length) { argsEl.style.display = "block"; argsEl.textContent = JSON.stringify(detail, null, 1); }
+  else argsEl.style.display = "none";
+  $("gate-confirm-row").style.display = isG2 ? "flex" : "none";
+  $("gate-confirm").checked = false;
+  $("gate-approve").disabled = isG2;
+  $("gate-approve").textContent = isG2 ? "Approve Irreversible Action" : "Approve Launch";
+  $("gate-reject").textContent = isG2 ? "Reject — do not do this" : "Reject & Stop";
+  $("gate-note").textContent = isG2
+    ? "Rejecting is safe: the agent must find another way or stop. Nothing is deleted unless you approve."
+    : "Nothing launches until you decide. Every decision is written to the run's audit log.";
+  overlay.classList.add("show");
+  $("view-console").classList.add("paused");
+  setRunChip("awaiting", "awaiting approval — " + (isG2 ? "Gate 2" : "Gate 1"));
+}
+$("gate-confirm").addEventListener("change", e => { $("gate-approve").disabled = !e.target.checked; });
+async function decideGate(approve) {
+  if (!gateCurrent) return;
+  const g = gateCurrent;
+  $("gate-approve").disabled = true; $("gate-reject").disabled = true;
+  try {
+    await fetch("/api/runs/" + g.runId + "/approve", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ gate: g.gate, approve: approve, actor: "human" })
+    });
+  } catch (e) { /* a 409 just means it was already decided */ }
+  $("gate-approve").disabled = false; $("gate-reject").disabled = false;
+  gateCurrent = null;
+  showNextGate();
+  if (!gateCurrent) setRunChip("running", "running");
+}
+$("gate-approve").onclick = () => decideGate(true);
+$("gate-reject").onclick = () => decideGate(false);
+
+/* ================= verification + verdict ================= */
+function meterSvg(acc) {
+  if (acc === null || acc === undefined || isNaN(acc)) return "";
+  const W = 220, H = 26, x = v => Math.max(0, Math.min(1, v)) * W;
+  const ok = acc >= ACC_THRESHOLD;
+  return '<svg class="meter" width="100%" viewBox="0 0 ' + W + ' ' + H + '" role="img" aria-label="accuracy meter">' +
+    '<rect x="0" y="8" width="' + W + '" height="9" rx="4.5" fill="#e2e8f0"/>' +
+    '<rect x="0" y="8" width="' + x(acc) + '" height="9" rx="4.5" fill="' + (ok ? "#16a34a" : "#dc2626") + '"/>' +
+    '<rect x="' + (x(ACC_THRESHOLD) - 1) + '" y="3" width="2" height="19" fill="#16213a"/>' +
+    '<text x="' + (x(ACC_THRESHOLD) - 3) + '" y="25" font-size="8.5" text-anchor="end" fill="#5a6577">target ' + ACC_THRESHOLD.toFixed(2) + "</text></svg>";
+}
+function setBadge(id, state, note) {
+  const el = $(id);
+  el.classList.remove("ok", "no");
+  if (state) el.classList.add(state);
+  el.querySelector(".vic").innerHTML = state === "ok" ? "&#10003;" : state === "no" ? "&#10007;" : "&#8226;";
+  if (note !== undefined) el.querySelector(".vnote").textContent = note;
+}
+function renderVerification(v) {
+  if (!v) {
+    setBadge("vb-exists", "", "Waiting for a result…");
+    setBadge("vb-loadable", "", "Waiting for a result…");
+    setBadge("vb-config", "", "Waiting for a result…");
+    const acc = $("vb-accuracy");
+    acc.classList.remove("ok", "no");
+    acc.querySelector(".vic").innerHTML = "&#8226;";
+    acc.querySelector(".vnote").textContent = "Status: UNVERIFIED — no result yet.";
+    if (acc.querySelector(".accnum")) acc.querySelector(".accnum").remove();
+    $("acc-meter").innerHTML = "";
+    return;
+  }
+  setBadge("vb-exists", v.checkpoint_exists ? "ok" : "no", v.checkpoint_exists ? "Checkpoint directory found on disk." : "No checkpoint was produced.");
+  setBadge("vb-loadable", v.checkpoint_loadable ? "ok" : "no", v.checkpoint_loadable ? "Checkpoint loads successfully." : "Checkpoint could not be loaded.");
+  setBadge("vb-config", v.config_honors_request ? "ok" : "no", v.config_honors_request ? "Final config matches the original request." : "Final config differs from the request.");
+  const accEl = $("vb-accuracy");
+  const acc = v.validation_accuracy;
+  accEl.classList.remove("ok", "no");
+  if (acc === null || acc === undefined) {
+    accEl.querySelector(".vic").innerHTML = "&#10007;";
+    accEl.classList.add("no");
+    accEl.querySelector(".vnote").textContent = "No validation accuracy was reported.";
+    $("acc-meter").innerHTML = "";
+  } else {
+    accEl.querySelector(".vic").innerHTML = acc >= ACC_THRESHOLD ? "&#10003;" : "&#10007;";
+    accEl.classList.add(acc >= ACC_THRESHOLD ? "ok" : "no");
+    let big = accEl.querySelector(".accnum");
+    if (!big) { big = document.createElement("div"); big.className = "accnum"; accEl.insertBefore(big, accEl.querySelector(".meter")); }
+    big.textContent = num(acc, 4);
+    accEl.querySelector(".vnote").textContent = acc >= ACC_THRESHOLD
+      ? "Meets the " + ACC_THRESHOLD.toFixed(2) + " threshold." : "Below the " + ACC_THRESHOLD.toFixed(2) + " threshold.";
+    $("acc-meter").innerHTML = meterSvg(acc);
+  }
+}
+function showVerdict(kind, title, sub) {
+  const el = $("verdict");
+  el.className = "verdict show " + kind;
+  el.innerHTML = '<div class="vtitle"></div>' + (sub ? '<div class="vsub"></div>' : "");
+  el.querySelector(".vtitle").textContent = title;
+  if (sub) el.querySelector(".vsub").textContent = sub;
+}
+function hideVerdict() { $("verdict").className = "verdict"; }
+
+async function finalizeLiveRun(runId) {
+  try {
+    const r = await fetch("/api/runs/" + runId);
+    if (!r.ok) return;
+    const data = await r.json();
+    const res = data.result || {};
+    const v = data.verification || res.verification || null;
+    renderVerification(v);
+    // Reconcile attempt cards with the authoritative diagnosis records.
+    (res.diagnosis_records || []).forEach((d, i) => attachDiagnosis(liveCtx, i + 1, d));
+    if (res.attempts) {
+      const last = ensureAttempt(liveCtx, res.attempts);
+      last.status = res.success ? "succeeded" : (last.status === "running" ? "failed" : last.status);
+      if (v && v.validation_accuracy !== null && v.validation_accuracy !== undefined && res.success)
+        last.accuracy = v.validation_accuracy;
+      renderStory(liveCtx);
+    }
+    const acc = v ? v.validation_accuracy : null;
+    if (data.status === "error" || data.error) {
+      showVerdict("bad", "✗ RUN ERROR", data.error || "The run failed with an error.");
+      setRunChip("error", "error");
+    } else if (res.success && v && v.passed) {
+      showVerdict("ok", "✓ VERIFIED SUCCESS — validation accuracy " + num(acc, 4) +
+        " · " + (res.attempts || "?") + " attempt(s)", res.final_message || "");
+      setRunChip("finished", "finished — verified success");
+    } else if (res.success) {
+      showVerdict("warn", "⚠ UNVERIFIED — the agent reported success but verification did not pass",
+        res.final_message || "At least one verification check failed, so success is not claimed.");
+      setRunChip("finished", "finished — unverified");
+    } else {
+      showVerdict("bad", "✗ RUN ENDED WITHOUT SUCCESS",
+        res.final_message || "The agent stopped without a verified checkpoint.");
+      setRunChip("finished", "finished — no success");
+    }
+    setSessionCtx("ready", "Session context: ready — the next run in this session will include this run's summary.");
+    clearGatesForRun(runId); // terminal state: no gate can still be pending
+    loadRunsTable();
+  } catch (e) { /* leave panels as-is */ }
+}
+
+/* ================= shared SSE event handling ================= */
+function handleEvent(ctx, ev, scope) {
+  const p = ev.payload || {};
+  logEvent(scope, ev);
+  switch (ev.type) {
+    case "run_started":
+      if (scope === "live") {
+        setRunChip("running", "running");
+        if (p.session_context_used)
+          setSessionCtx("on", "Session context: active — the previous run's summary in this session was passed to this run.");
+      }
+      break;
+    case "node_started":
+      setNode(ctx.pipe, p.node, "active");
+      if (p.node === "planner") ["critic", "repair_router", "planner"].forEach(n => loopMark(ctx.pipe, n, false));
+      if (p.node === "executor" && !ctx.sawAttemptEvents) {
+        const cur = currentAttempt(ctx);
+        if (!cur || cur.status !== "running") { const a = ensureAttempt(ctx, ctx.maxAttempt + 1); ctx.openAttempt = a.n; }
+      }
+      break;
+    case "node_finished":
+      setNode(ctx.pipe, p.node, (p.status === "fail" || p.status === "failed" || p.status === "error") ? "failed" : "done");
+      break;
+    case "attempt_started":
+      ctx.sawAttemptEvents = true;
+      { const a = ensureAttempt(ctx, p.attempt); a.status = "running"; ctx.openAttempt = a.n; renderStory(ctx); }
+      break;
+    case "attempt_finished": {
+      ctx.sawAttemptEvents = true;
+      const a = ensureAttempt(ctx, p.attempt);
+      a.status = p.status || a.status;
+      if (p.logs) a.logs = p.logs;
+      if (p.fix) a.fix = p.fix;
+      if (p.duration_seconds !== undefined) a.duration = p.duration_seconds;
+      if (ctx.openAttempt === a.n) ctx.openAttempt = 0;
+      renderStory(ctx);
+      break;
+    }
+    case "attempt_failed": {
+      const a = currentAttempt(ctx) || ensureAttempt(ctx, ctx.maxAttempt + 1);
+      a.status = "failed";
+      if (p.logs) a.logs = p.logs;
+      if (p.diagnosis) attachDiagnosis(ctx, a.n, p.diagnosis);
+      renderStory(ctx);
+      break;
+    }
+    case "diagnosis_ready":
+      attachDiagnosis(ctx, p.attempt, p.diagnosis || p);
+      break;
+    case "plan_ready": {
+      const el = $("plan-summary");
+      if (scope === "live" && el) {
+        el.classList.add("show");
+        el.innerHTML = "<h4 style='margin:0 0 6px'>Plan</h4><div></div>";
+        el.querySelector("div").textContent = p.summary || JSON.stringify(p.spec || {});
+      }
+      break;
+    }
+    case "approval_required":
+      // Gate-less events are echoes of a decision, not gates (see enqueueGate).
+      if (scope === "live" && p.gate) enqueueGate(currentRunId, p.gate, p.action || {}, p.irreversible);
+      break;
+    case "approval_decided":
+      if (scope === "live" && p.gate) removeGate(currentRunId, p.gate);
+      break;
+    case "verification_done":
+      if (scope === "live" && currentRunId) finalizeLiveRun(currentRunId);
+      break;
+    case "run_finished":
+      if (scope === "live") finalizeLiveRun(currentRunId);
+      break;
+    case "run_error":
+      if (scope === "live") { clearGatesForRun(currentRunId); showVerdict("bad", "✗ RUN ERROR", p.error || ""); setRunChip("error", "error"); }
+      break;
+  }
+}
+
+/* ================= run lifecycle ================= */
+let currentRunId = null, liveSource = null, statusTimer = null;
+function attachStream(runId, scope) {
+  if (liveSource) liveSource.close();
+  liveSource = new EventSource("/api/runs/" + runId + "/events");
+  liveSource.onmessage = e => { try { handleEvent(liveCtx, JSON.parse(e.data), scope); } catch (err) {} };
+  liveSource.onerror = () => { /* browser retries; persisted streams just end */ };
+}
+function startStatusPoll(runId) {
+  if (statusTimer) clearInterval(statusTimer);
+  statusTimer = setInterval(async () => {
+    try {
+      const r = await fetch("/api/runs/" + runId);
+      if (!r.ok) return;
+      const d = await r.json();
+      if (d.status === "queued") setRunChip("queued", "queued");
+      else if (d.status === "awaiting_approval") setRunChip("awaiting", "awaiting approval");
+      else if (d.status === "running") { if (!gateCurrent) setRunChip("running", "running"); }
+      if (d.status === "finished" || d.status === "error") {
+        clearInterval(statusTimer); statusTimer = null;
+        finalizeLiveRun(runId);
+      }
+    } catch (e) {}
+  }, 3000);
+}
+function resetConsoleForRun() {
+  resetCtx(liveCtx);
+  hideVerdict();
+  renderVerification(null);
+  $("plan-summary").classList.remove("show");
+  $("event-log").textContent = "";
+  gateQueue.length = 0; gateCurrent = null;
+  $("gate-overlay").classList.remove("show");
+  $("view-console").classList.remove("paused");
+}
+$("btn-run").addEventListener("click", async () => {
+  const sessionId = $("session-id").value || "default";
+  const body = {
+    request: $("request-text").value,
+    session_id: sessionId,
+    fields: {
+      model_name: $("f-model").value,
+      dataset: $("f-dataset").value,
+      num_workers: Number($("f-workers").value),
+      epochs: Number($("f-epochs").value),
+      per_worker_batch_size: Number($("f-batch").value)
+    }
+  };
+  $("btn-run").disabled = true;
+  try {
+    const r = await fetch("/api/runs", { method: "POST",
+      headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+    if (!r.ok) { $("run-status").textContent = "Could not start the run (HTTP " + r.status + ")."; return; }
+    const data = await r.json();
+    currentRunId = data.run_id;
+    resetConsoleForRun();
+    setRunChip("queued", "queued — " + currentRunId);
+    $("run-status").textContent = "Run " + currentRunId + " · " + (data.status || "queued") +
+      " · session " + sessionId;
+    attachStream(currentRunId, "live");
+    startStatusPoll(currentRunId);
+  } finally { $("btn-run").disabled = false; }
+});
+$("preset-canonical").addEventListener("click", () => {
+  $("request-text").value = "Fine-tune DistilBERT on SST-2 with 2 CPU workers";
+  $("f-epochs").value = 1;
+});
+$("preset-followup").addEventListener("click", () => {
+  $("request-text").value = "Same setup as before, but run 3 epochs this time";
+  $("f-epochs").value = 3;
+});
+$("session-id").addEventListener("change", () => {
+  setSessionCtx("", "Session context: none yet — this session has not completed a run.");
+});
+
+/* ================= recent runs table ================= */
+async function loadRunsTable() {
+  try {
+    const r = await fetch("/api/runs");
+    const data = await r.json();
+    const rows = (data.runs || []).slice().reverse();
+    $("runs-rows").innerHTML = rows.length ? rows.map(run =>
+      '<tr class="clickable" data-run="' + esc(run.run_id) + '"><td class="mono">' + esc(run.run_id) + "</td>" +
+      '<td><span class="status-pill ' + esc(run.status || "") + '">' + esc(run.status || "") + "</span></td>" +
+      "<td>" + (run.success === null || run.success === undefined ? "—" : run.success ? "✓ yes" : "✗ no") + "</td>" +
+      "<td>" + (run.attempts === null || run.attempts === undefined ? "—" : esc(run.attempts)) + "</td>" +
+      "<td>" + esc((run.request_text || "").slice(0, 60)) + "</td></tr>").join("")
+      : '<tr><td colspan="5" class="muted">No runs yet.</td></tr>';
+    $("runs-rows").querySelectorAll("tr.clickable").forEach(tr => {
+      tr.addEventListener("click", () => viewRun(tr.dataset.run));
+    });
+  } catch (e) {}
+}
+async function viewRun(runId) {
+  currentRunId = runId;
+  resetConsoleForRun();
+  $("run-status").textContent = "Viewing run " + runId;
+  setRunChip("running", "loading run…");
+  attachStream(runId, "review");
+  startStatusPoll(runId);
+}
+
+/* ================= failure memory ================= */
+async function loadFailures() {
+  try {
+    const r = await fetch("/api/failures");
+    const data = await r.json();
+    const q = ($("failure-search").value || "").toLowerCase();
+    const all = data.failures || [];
+    const rows = all.filter(f => !q ||
+      (f.fault_label || "").toLowerCase().includes(q) ||
+      (f.root_cause_code || "").toLowerCase().includes(q) ||
+      (f.fix_code || "").toLowerCase().includes(q));
+    $("failure-count").textContent = "Showing " + rows.length + " of " + all.length + " recorded failures.";
+    $("failure-rows").innerHTML = rows.length ? rows.map(f =>
+      "<tr><td>" + esc(f.fault_label || "") + '</td><td><span class="mono">' + esc(f.root_cause_code || "") +
+      "</span></td><td>" + esc((f.evidence || []).join("; ")) + '</td><td><span class="mono">' +
+      esc(f.fix_code || "") + '</span></td><td class="mono">' + esc(f.run_id || "") + "</td></tr>").join("")
+      : '<tr><td colspan="5" class="muted">No failures recorded yet — or none match the filter.</td></tr>';
+  } catch (e) {
+    $("failure-rows").innerHTML = '<tr><td colspan="5" class="muted">Could not load failure memory.</td></tr>';
+  }
+}
+$("failure-search").addEventListener("input", loadFailures);
+
+/* ================= benchmark dashboard (inline SVG charts) ================= */
+function hbarSvg(rows, opts) {
+  // rows: [{label, value, lo?, hi?, color}]
+  opts = opts || {};
+  const W = 680, rowH = 30, top = 8, labelW = 170, barW = W - labelW - 70;
+  const H = top * 2 + rows.length * rowH;
+  const x = v => labelW + Math.max(0, Math.min(1, v)) * barW;
+  let s = '<svg width="100%" viewBox="0 0 ' + W + " " + H + '" role="img">';
+  s += '<rect x="' + labelW + '" y="0" width="' + barW + '" height="' + H + '" fill="#f8fafc"/>';
+  [0, 0.5, 1].forEach(g => {
+    s += '<line x1="' + x(g) + '" y1="0" x2="' + x(g) + '" y2="' + H + '" stroke="#e2e8f0"/>' +
+         '<text x="' + x(g) + '" y="' + (H - 1) + '" font-size="9" text-anchor="middle" fill="#94a3b8">' + (g * 100) + "%</text>";
+  });
+  rows.forEach((r, i) => {
+    const y = top + i * rowH;
+    s += '<text x="' + (labelW - 8) + '" y="' + (y + 16) + '" font-size="12" text-anchor="end" font-weight="600" fill="#16213a">' + esc(r.label) + "</text>";
+    s += '<rect x="' + labelW + '" y="' + (y + 4) + '" width="' + Math.max(0, (r.value || 0) * barW) +
+         '" height="15" rx="3" fill="' + (r.color || "#2563eb") + '"/>';
+    if (r.lo !== undefined && r.hi !== undefined) {
+      const cy = y + 11.5;
+      s += '<line x1="' + x(r.lo) + '" y1="' + cy + '" x2="' + x(r.hi) + '" y2="' + cy + '" stroke="#16213a" stroke-width="1.6"/>' +
+           '<line x1="' + x(r.lo) + '" y1="' + (cy - 4) + '" x2="' + x(r.lo) + '" y2="' + (cy + 4) + '" stroke="#16213a" stroke-width="1.6"/>' +
+           '<line x1="' + x(r.hi) + '" y1="' + (cy - 4) + '" x2="' + x(r.hi) + '" y2="' + (cy + 4) + '" stroke="#16213a" stroke-width="1.6"/>';
+    }
+    s += '<text x="' + (x(r.value || 0) + 7) + '" y="' + (y + 16) + '" font-size="12" font-weight="700" fill="#16213a">' + pct(r.value) + "</text>";
+  });
+  return s + "</svg>";
+}
+function passPairSvg(systems) {
+  // systems: [{label, k, at, pow}] — paired bars pass@k (light) vs pass^k (dark)
+  const W = 680, rowH = 44, top = 26, labelW = 170, barW = W - labelW - 70;
+  const H = top + systems.length * rowH + 6;
+  const x = v => labelW + Math.max(0, Math.min(1, v)) * barW;
+  let s = '<svg width="100%" viewBox="0 0 ' + W + " " + H + '" role="img">';
+  s += '<rect x="0" y="0" width="13" height="13" fill="#93c5fd"/><text x="17" y="11" font-size="11.5" fill="#16213a">pass@k — at least one of k runs passes (optimistic)</text>';
+  s += '<rect x="330" y="0" width="13" height="13" fill="#1e40af"/><text x="347" y="11" font-size="11.5" fill="#16213a">pass^k — all k runs pass (consistency)</text>';
+  systems.forEach((r, i) => {
+    const y = top + i * rowH;
+    s += '<text x="' + (labelW - 8) + '" y="' + (y + 15) + '" font-size="12" text-anchor="end" font-weight="600" fill="#16213a">' + esc(r.label) + "</text>";
+    s += '<text x="' + (labelW - 8) + '" y="' + (y + 30) + '" font-size="10.5" text-anchor="end" fill="#5a6577">k = ' + r.k + "</text>";
+    s += '<rect x="' + labelW + '" y="' + (y + 2) + '" width="' + Math.max(0, (r.at || 0) * barW) + '" height="12" rx="3" fill="#93c5fd"/>';
+    s += '<text x="' + (x(r.at || 0) + 7) + '" y="' + (y + 12) + '" font-size="11.5" font-weight="700">' + pct(r.at) + "</text>";
+    s += '<rect x="' + labelW + '" y="' + (y + 18) + '" width="' + Math.max(0, (r.pow || 0) * barW) + '" height="12" rx="3" fill="#1e40af"/>';
+    s += '<text x="' + (x(r.pow || 0) + 7) + '" y="' + (y + 28) + '" font-size="11.5" font-weight="700">' + pct(r.pow) + "</text>";
+  });
+  return s + "</svg>";
+}
+function largestPassK(stats) {
+  if (!stats) return null;
+  for (let k = 12; k >= 1; k--) {
+    if (stats["pass@" + k] !== undefined)
+      return { k: k, at: stats["pass@" + k], pow: stats["pass^" + k] };
+    const per = stats.per_k && stats.per_k[String(k)];
+    if (per) return { k: k, at: per["pass@k"], pow: per["pass^k"] };
+  }
+  return null;
+}
+async function loadBenchmark() {
+  const body = $("benchmark-body");
+  try {
+    const r = await fetch("/api/benchmark");
+    const data = await r.json();
+    if (data.state === "empty") {
+      let h = '<div class="empty-note" style="max-width:760px"><strong>No benchmark results yet.</strong><br>' +
+        esc(data.message || "") + '<br><br>Generate one on this machine with:<br>' +
+        '<pre class="codeblock">.venv/bin/python -m eval.eval_harness --mode lab50 \\\n' +
+        "    --tasks benchmark/tasks_lab50.jsonl \\\n" +
+        "    --systems demo_agent,non_agentic_baseline --repeats 3 \\\n" +
+        "    --out reports/final/</pre>Then reload this view.</div>";
+      const kpis = data.kpis || {};
+      const keys = Object.keys(kpis);
+      if (keys.length) {
+        h += '<div class="kpis">' + keys.map(k =>
+          '<div class="kpi"><div class="k">' + esc(k.replaceAll("_", " ")) + '</div><div class="v">—</div></div>').join("") + "</div>";
+      }
+      body.innerHTML = h;
+      return;
+    }
+    const s = data.summary || {};
+    let h = "";
+    // Flat KPI cards when present at the top level of the summary.
+    const flat = [["held_out_success_rate", "Held-out success rate", pct],
+                  ["repair_within_3_attempts", "Repair within 3 attempts", pct],
+                  ["unsafe_executions", "Unsafe executions", v => v],
+                  ["false_success_reports", "False success reports", v => v],
+                  ["avg_attempts", "Avg attempts", v => num(v, 2)],
+                  ["avg_wall_time_seconds", "Avg wall time (s)", v => num(v, 1)],
+                  ["api_cost_per_run", "Cost / run", v => v]];
+    const present = flat.filter(([k]) => s[k] !== null && s[k] !== undefined);
+    if (present.length) {
+      h += '<div class="kpis">' + present.map(([k, label, f]) =>
+        '<div class="kpi"><div class="k">' + label + '</div><div class="v">' + esc(f(s[k])) + "</div></div>").join("") + "</div>";
+    }
+    const systems = s.systems || {};
+    const names = Object.keys(systems).sort();
+    if (names.length) {
+      const colorFor = n => /baseline/i.test(n) ? "#94a3b8" : /planning|agent/i.test(n) ? "#16a34a" : "#2563eb";
+      const accRows = names.map(n => {
+        const sy = systems[n], w = sy.accuracy_wilson95 || [];
+        return { label: n, value: sy.accuracy, lo: w[0], hi: w[1], color: colorFor(n) };
+      });
+      h += '<div class="chartbox"><h4>Task accuracy by system (agent vs baseline)</h4>' +
+           hbarSvg(accRows) +
+           '<div class="muted">Whiskers show the Wilson 95% interval. Accuracy = tasks passed / tasks run, graded by code first (exact match, state diff, tests), then a calibrated rubric judge.</div></div>';
+      const pairRows = names.map(n => {
+        const pk = largestPassK(systems[n].pass_at_k);
+        return pk ? { label: n, k: pk.k, at: pk.at, pow: pk.pow } : null;
+      }).filter(Boolean);
+      if (pairRows.length)
+        h += '<div class="chartbox"><h4>Reliability: pass@k vs pass^k</h4>' + passPairSvg(pairRows) + "</div>";
+      // Safety tiles per system.
+      h += "<h4>Safety counters (lower is better; all must be 0 except the pass rate)</h4>";
+      names.forEach(n => {
+        const sy = systems[n], c = sy.safety_counters || {};
+        const tile = (label, val, good) =>
+          '<div class="tile ' + (good ? "good" : "bad") + '"><div class="v">' + esc(val) + '</div><div class="k">' + label + "</div></div>";
+        const z = v => (v === null || v === undefined ? "—" : v);
+        h += '<div style="margin:6px 0 2px"><strong>' + esc(n) + '</strong> <span class="muted">safety pass rate: ' +
+             pct(sy.safety_pass_rate) + "</span></div>" +
+             '<div class="tiles">' +
+             tile("Unsafe attempted", z(c.unsafe_attempted), true) +
+             tile("Unsafe executed", z(c.unsafe_executed), c.unsafe_executed === 0) +
+             tile("Planted followed", z(c.planted_followed), c.planted_followed === 0) +
+             tile("Unapproved irreversible", z(c.unapproved_irreversible), c.unapproved_irreversible === 0) +
+             tile("Unverified success reports", z(c.unverified_success_report), c.unverified_success_report === 0) +
+             "</div>";
+      });
+      // Per-family accuracy table.
+      const fams = new Set();
+      names.forEach(n => Object.keys(systems[n].families || {}).forEach(f => fams.add(f)));
+      if (fams.size) {
+        h += '<div class="chartbox"><h4>Accuracy by fault family</h4><table><thead><tr><th>Family</th>' +
+             names.map(n => "<th>" + esc(n) + "</th>").join("") + "</tr></thead><tbody>";
+        [...fams].sort().forEach(f => {
+          h += "<tr><td>" + esc(f) + "</td>" + names.map(n => {
+            const fam = (systems[n].families || {})[f];
+            return "<td>" + (fam ? pct(fam.accuracy) + ' <span class="muted">(' + fam.runs + " runs)</span>" : "—") + "</td>";
+          }).join("") + "</tr>";
+        });
+        h += "</tbody></table></div>";
+      }
+      // Efficiency mini-table.
+      h += '<div class="chartbox"><h4>Efficiency (per task, averaged)</h4><table><thead><tr><th>System</th><th>Avg turns</th><th>Avg latency (s)</th><th>p95 latency (s)</th><th>Avg tokens</th><th>Cost / task</th><th>Cost / successful task</th></tr></thead><tbody>' +
+        names.map(n => { const sy = systems[n]; return "<tr><td>" + esc(n) + "</td><td>" + num(sy.avg_turns, 2) +
+          "</td><td>" + num(sy.avg_latency_s, 2) + "</td><td>" + num(sy.p95_latency_s, 2) + "</td><td>" +
+          num(sy.avg_tokens, 0) + "</td><td>" + (sy.cost_per_task_usd === undefined ? "—" : "$" + num(sy.cost_per_task_usd, 4)) +
+          "</td><td>" + (sy.cost_per_successful_task_usd === null || sy.cost_per_successful_task_usd === undefined ? "—" : "$" + num(sy.cost_per_successful_task_usd, 4)) + "</td></tr>"; }).join("") +
+        "</tbody></table></div>";
+    }
+    const params = s.parameters || {};
+    const plabels = { model: "Model", temperature: "Temperature", tool_set: "Tool set",
+                      budget: "Budget per task", price_table_version: "Price table version",
+                      safety_policy: "Safety policy" };
+    const pkeys = Object.keys(params);
+    if (pkeys.length) {
+      h += '<div class="chartbox"><h4>Parameters logged with every score</h4><table class="ptable"><tbody>' +
+        pkeys.map(k => "<tr><td>" + esc(plabels[k] || k) + "</td><td>" + esc(params[k]) + "</td></tr>").join("") +
+        "</tbody></table>" +
+        '<div class="muted" style="margin-top:6px">Source: ' + esc(data.source || "reports/final/summary.json") +
+        ". With 200 tasks, ±3 points is about one standard error — differences inside that band are reported as not significant.</div></div>";
+    }
+    if (!h) h = '<div class="empty-note">The benchmark summary was found but has no systems data yet.</div>';
+    body.innerHTML = h;
+  } catch (e) {
+    body.innerHTML = '<div class="empty-note">Could not load benchmark data.</div>';
+  }
+}
+
+/* ================= replay ================= */
+let replaySource = null, replayTotal = 0, replaySeen = 0, replayRunId = null;
+async function loadRunList() {
+  try {
+    const r = await fetch("/api/runs");
+    const data = await r.json();
+    const runs = (data.runs || []).filter(run => run.status === "finished" || run.status === "error");
+    $("replay-run").innerHTML = runs.length ? runs.map(run =>
+      '<option value="' + esc(run.run_id) + '">' + esc(run.run_id) + " (" + esc(run.status) + ")</option>").join("")
+      : '<option value="">No finished runs yet</option>';
+  } catch (e) {}
+}
+async function countReplayEvents(runId) {
+  try {
+    const r = await fetch("/api/runs/" + runId + "/events");
+    if (!r.ok) return 0;
+    const text = await r.text();
+    return (text.match(/^data:/gm) || []).length;
+  } catch (e) { return 0; }
+}
+$("btn-replay").addEventListener("click", async () => {
+  const runId = $("replay-run").value;
+  if (!runId) return;
+  replayRunId = runId; replaySeen = 0;
+  resetCtx(replayCtx);
+  $("replay-story").innerHTML = '<div class="empty-note">Replaying&hellip;</div>';
+  $("replay-watermark").classList.add("show");
+  $("replay-giant").classList.add("show");
+  $("replay-bar").style.width = "0%";
+  $("replay-status").textContent = "Replaying run " + runId + " at 8× speed — playback only, nothing is re-executed.";
+  $("replay-progress-text").textContent = "Counting recorded events…";
+  replayTotal = await countReplayEvents(runId);
+  $("replay-progress-text").textContent = replayTotal
+    ? "0 / " + replayTotal + " events" : "Streaming events…";
+  if (replaySource) replaySource.close();
+  replaySource = new EventSource("/api/runs/" + runId + "/replay");
+  replaySource.onmessage = e => {
+    let ev; try { ev = JSON.parse(e.data); } catch (err) { return; }
+    if (ev.type === "replay_started") {
+      $("replay-watermark").classList.add("show");
+      $("replay-giant").classList.add("show");
+      return;
+    }
+    if (ev.type === "replay_finished") {
+      $("replay-bar").style.width = "100%";
+      $("replay-progress-text").textContent = "Replay finished — " + replaySeen + " events shown.";
+      $("replay-status").textContent = "Replay of run " + runId + " finished.";
+      replaySource.close();
+      return;
+    }
+    replaySeen++;
+    if (replayTotal) {
+      $("replay-bar").style.width = Math.min(100, replaySeen / replayTotal * 100) + "%";
+      $("replay-progress-text").textContent = replaySeen + " / " + replayTotal + " events · 8× speed";
+    } else {
+      $("replay-progress-text").textContent = replaySeen + " events · 8× speed";
+    }
+    handleEvent(replayCtx, ev, "replay");
+  };
+  replaySource.onerror = () => { /* stream end closes the source */ };
+});
+
+/* ================= view switching ================= */
 document.querySelectorAll("nav button").forEach(btn => {
   btn.addEventListener("click", () => {
     document.querySelectorAll("nav button").forEach(b => b.classList.remove("active"));
     document.querySelectorAll(".view").forEach(v => v.classList.remove("active"));
     btn.classList.add("active");
-    document.getElementById("view-" + btn.dataset.view).classList.add("active");
+    $("view-" + btn.dataset.view).classList.add("active");
     if (btn.dataset.view === "failures") loadFailures();
     if (btn.dataset.view === "benchmark") loadBenchmark();
     if (btn.dataset.view === "replay") loadRunList();
+    if (btn.dataset.view === "console") loadRunsTable();
   });
 });
 
-// ---- plan view ----
-const planEl = document.getElementById("plan-nodes");
-NODES.forEach(n => {
-  const s = document.createElement("span");
-  s.className = "node"; s.id = "node-" + n; s.textContent = n;
-  planEl.appendChild(s);
-});
-function setNode(name, cls) {
-  const el = document.getElementById("node-" + name);
-  if (el) el.className = "node " + cls;
-}
-
-// ---- attempt rendering (shared by live + replay) ----
-function renderAttempt(scope, payload) {
-  const tl = document.getElementById(scope + "-timeline") || document.getElementById("timeline");
-  const cards = document.getElementById(scope === "replay" ? "replay-cards" : "attempt-cards");
-  const dotId = scope + "-dot-" + payload.attempt;
-  let dot = document.getElementById(dotId);
-  if (!dot) {
-    const wrap = document.createElement("div"); wrap.className = "tl-point";
-    wrap.innerHTML = '<div class="tl-dot" id="' + dotId + '">' + payload.attempt +
-      '</div><div>attempt ' + payload.attempt + '</div><div class="muted"></div>';
-    tl.appendChild(wrap); dot = document.getElementById(dotId);
-  }
-  dot.className = "tl-dot " + (payload.status || "running");
-  dot.parentElement.lastElementChild.textContent =
-    (payload.status || "") + (payload.duration_seconds ? " · " + payload.duration_seconds + "s" : "");
-  if (payload.status && payload.status !== "running") {
-    const card = document.createElement("div"); card.className = "card";
-    let fixHtml = "";
-    if (payload.fix && Object.keys(payload.fix).length) {
-      fixHtml = "<h5>Fix</h5>" + Object.entries(payload.fix).map(([k, v]) =>
-        '<div class="diff-add">+ ' + k + ": " + v + "</div>").join("");
-    }
-    card.innerHTML = "<h4>Attempt " + payload.attempt + " — " + payload.status + "</h4>" +
-      '<pre class="log"></pre>' + fixHtml +
-      '<div class="muted">Next step: ' +
-      (payload.status === "succeeded" ? "verify" : "diagnose &amp; retry") + "</div>";
-    card.querySelector("pre").textContent = payload.logs || "";
-    cards.appendChild(card);
+/* ================= health chip + init ================= */
+async function pollHealth() {
+  try {
+    const r = await fetch("/health");
+    const ok = r.ok && (await r.json()).status === "ok";
+    $("chip-server").textContent = ok ? "Server: online (local)" : "Server: unexpected response";
+    $("chip-server-dot").className = "dot " + (ok ? "on" : "off");
+  } catch (e) {
+    $("chip-server").textContent = "Server: offline";
+    $("chip-server-dot").className = "dot off";
   }
 }
-
-// ---- verification panel ----
-async function showVerification(runId) {
-  const r = await fetch("/api/runs/" + runId);
-  if (!r.ok) return;
-  const data = await r.json();
-  const v = data.verification || {};
-  const panel = document.getElementById("verify");
-  const passed = v.passed === true;
-  const acc = (v.validation_accuracy === null || v.validation_accuracy === undefined)
-    ? "n/a" : v.validation_accuracy;
-  panel.className = "verify show " + (passed ? "passed" : "unverified");
-  panel.innerHTML = "<h4>Final Verification — " + (passed ? "VERIFIED" : "UNVERIFIED") + "</h4>" +
-    "<div>" + (v.checkpoint_exists ? "✓" : "✗") + " Checkpoint exists</div>" +
-    "<div>" + (v.checkpoint_loadable ? "✓" : "✗") + " Checkpoint loadable</div>" +
-    "<div>" + (v.validation_accuracy !== null && v.validation_accuracy !== undefined ? "✓" : "✗") +
-      " Validation accuracy: " + acc + "</div>" +
-    "<div>" + (v.config_honors_request ? "✓" : "✗") + " Config honors the original request</div>" +
-    (passed ? "" : '<p><strong>UNVERIFIED</strong> — at least one check did not pass, so success is not claimed.</p>');
-}
-
-// ---- gates ----
-function showGate(gate, action) {
-  const el = document.getElementById(gate === "gate1_first_launch" ? "gate1" : "gate2");
-  el.classList.add("show");
-  document.getElementById(gate === "gate1_first_launch" ? "gate1-desc" : "gate2-desc")
-    .textContent = action.description || "";
-  if (gate !== "gate1_first_launch" && action.args && action.args.paths) {
-    document.getElementById("gate2-files").innerHTML =
-      "<strong>Will delete:</strong><ul>" + action.args.paths.map(p => "<li>" + p + "</li>").join("") +
-      "</ul><div>Total: " + (action.args.total_mb || "?") + " MB</div>";
-  }
-}
-function hideGate(gate) {
-  document.getElementById(gate === "gate1_first_launch" ? "gate1" : "gate2").classList.remove("show");
-}
-async function decide(gate, approve) {
-  await fetch("/api/runs/" + currentRunId + "/approve", {
-    method: "POST", headers: {"Content-Type": "application/json"},
-    body: JSON.stringify({gate: gate, approve: approve, actor: "human"})
-  });
-  hideGate(gate);
-}
-document.getElementById("gate1-approve").onclick = () => decide("gate1_first_launch", true);
-document.getElementById("gate1-reject").onclick = () => decide("gate1_first_launch", false);
-document.getElementById("gate2-reject").onclick = () => decide("gate2_irreversible", false);
-document.getElementById("gate2-confirm").addEventListener("change", e => {
-  document.getElementById("gate2-approve").disabled = !e.target.checked;
-});
-document.getElementById("gate2-approve").onclick = () => decide("gate2_irreversible", true);
-
-// ---- live run ----
-function handleEvent(ev, scope) {
-  const p = ev.payload || {};
-  if (ev.type === "node_started") setNode(p.node, "running");
-  if (ev.type === "node_finished") setNode(p.node, p.status === "fail" ? "fail" : "ok");
-  if (ev.type === "plan_ready") {
-    const el = document.getElementById("plan-summary");
-    el.style.display = "block";
-    el.innerHTML = "<h4>Plan</h4><div></div>";
-    el.querySelector("div").textContent = p.summary || JSON.stringify(p.spec || {});
-  }
-  if (ev.type === "attempt_started") renderAttempt(scope, {attempt: p.attempt, status: "running"});
-  if (ev.type === "attempt_finished") renderAttempt(scope, p);
-  if (ev.type === "approval_required" && scope === "live") showGate(p.gate, p.action || {});
-  if (ev.type === "approval_decided" && scope === "live") hideGate(p.gate);
-  if (ev.type === "run_finished" && scope === "live") {
-    document.getElementById("run-status").textContent =
-      "Run finished — success: " + p.success;
-    showVerification(currentRunId);
-    refreshSessionSummary();
-  }
-}
-document.getElementById("btn-run").addEventListener("click", async () => {
-  const body = {
-    request: document.getElementById("request-text").value,
-    session_id: document.getElementById("session-id").value || "default",
-    fields: {
-      model_name: document.getElementById("f-model").value,
-      dataset: document.getElementById("f-dataset").value,
-      num_workers: Number(document.getElementById("f-workers").value),
-      epochs: Number(document.getElementById("f-epochs").value),
-      per_worker_batch_size: Number(document.getElementById("f-batch").value)
-    }
-  };
-  const r = await fetch("/api/runs", {method: "POST",
-    headers: {"Content-Type": "application/json"}, body: JSON.stringify(body)});
-  const data = await r.json();
-  currentRunId = data.run_id;
-  document.getElementById("run-status").textContent = "Run " + currentRunId + " started";
-  document.getElementById("attempt-cards").innerHTML = "";
-  document.getElementById("timeline").innerHTML = "";
-  document.getElementById("verify").className = "verify";
-  NODES.forEach(n => setNode(n, ""));
-  if (liveSource) liveSource.close();
-  liveSource = new EventSource("/api/runs/" + currentRunId + "/events");
-  liveSource.onmessage = e => handleEvent(JSON.parse(e.data), "live");
-});
-async function refreshSessionSummary() {
-  // The server attaches the summary to the next run; here we just note it.
-  document.getElementById("session-summary").textContent =
-    "Previous run in this session finished. Its summary will be passed as context to the next run in this session.";
-}
-
-// ---- failure memory ----
-async function loadFailures() {
-  const r = await fetch("/api/failures");
-  const data = await r.json();
-  const q = (document.getElementById("failure-search").value || "").toLowerCase();
-  const rows = (data.failures || []).filter(f =>
-    !q || (f.fault_label || "").toLowerCase().includes(q));
-  document.getElementById("failure-rows").innerHTML = rows.map(f =>
-    "<tr><td>" + (f.fault_label || "") + "</td><td>" + (f.root_cause_code || "") +
-    "</td><td>" + ((f.evidence || []).join("; ")) + "</td><td>" + (f.fix_code || "") +
-    "</td><td>" + (f.run_id || "") + "</td></tr>").join("");
-}
-document.getElementById("failure-search").addEventListener("input", loadFailures);
-
-// ---- benchmark ----
-async function loadBenchmark() {
-  const r = await fetch("/api/benchmark");
-  const data = await r.json();
-  const kpis = document.getElementById("kpis");
-  if (data.state === "empty") {
-    document.getElementById("benchmark-note").textContent = data.message;
-    kpis.innerHTML = Object.keys(data.kpis || {}).map(k =>
-      '<div class="kpi"><div>' + k.replaceAll("_", " ") + '</div><div class="v">—</div></div>').join("");
-    return;
-  }
-  const s = data.summary || {};
-  const cards = [
-    ["Held-out success rate", s.held_out_success_rate],
-    ["Repair within 3 attempts", s.repair_within_3_attempts],
-    ["Unsafe executions", s.unsafe_executions],
-    ["False success reports", s.false_success_reports],
-    ["Avg attempts", s.avg_attempts],
-    ["Avg wall time (s)", s.avg_wall_time_seconds],
-    ["API cost / run", s.api_cost_per_run]
-  ];
-  kpis.innerHTML = cards.map(([k, v]) =>
-    '<div class="kpi"><div>' + k + '</div><div class="v">' +
-    (v === null || v === undefined ? "—" : v) + "</div></div>").join("");
-  if (window.Chart && s.per_family) {
-    new Chart(document.getElementById("family-chart"), {
-      type: "bar",
-      data: {labels: Object.keys(s.per_family),
-             datasets: [{label: "success rate", data: Object.values(s.per_family)}]},
-      options: {scales: {y: {min: 0, max: 1}}}
-    });
-  }
-}
-
-// ---- replay ----
-async function loadRunList() {
-  const r = await fetch("/api/runs");
-  const data = await r.json();
-  const sel = document.getElementById("replay-run");
-  sel.innerHTML = (data.runs || []).map(run =>
-    '<option value="' + run.run_id + '">' + run.run_id + " (" + run.status + ")</option>").join("");
-}
-document.getElementById("btn-replay").addEventListener("click", () => {
-  const runId = document.getElementById("replay-run").value;
-  if (!runId) return;
-  document.getElementById("replay-cards").innerHTML = "";
-  document.getElementById("replay-timeline").innerHTML = "";
-  if (replaySource) replaySource.close();
-  replaySource = new EventSource("/api/runs/" + runId + "/replay");
-  replaySource.onmessage = e => {
-    const ev = JSON.parse(e.data);
-    if (ev.type === "replay_started") document.getElementById("replay-watermark").classList.add("show");
-    if (ev.type === "replay_finished") document.getElementById("replay-watermark").classList.remove("show");
-    handleEvent(ev, "replay");
-  };
-});
+pollHealth();
+setInterval(pollHealth, 5000);
+loadRunsTable();
 </script>
 </body>
 </html>

@@ -125,6 +125,34 @@ def _extract_hints(text: str) -> dict[str, Any]:
     return hints
 
 
+def _explicit_overrides(text: str) -> dict[str, Any]:
+    """Statements the user made explicitly in the request text.
+
+    These override the LLM parse: the demo must never silently turn a
+    GPU request into a CPU run, a named dataset into SST-2, or a stated
+    worker/epoch count into the defaults. The verifier compares the
+    final spec against this parse, so the parse has to reflect what the
+    user actually said.
+    """
+    lowered = text.lower()
+    overrides: dict[str, Any] = {}
+    if re.search(r"\bgpu\b", lowered):
+        overrides["cpu_only"] = False
+    match = re.search(r"(\d+)\s*(?:cpu\s+|gpu\s+)?workers?", lowered)
+    if match:
+        overrides["num_workers"] = int(match.group(1))
+    match = re.search(r"(\d+)\s*epochs?", lowered)
+    if match:
+        overrides["epochs"] = int(match.group(1))
+    match = re.search(r"on the ([\w\-]+) dataset", lowered) or re.search(
+        r"dataset (?:called |named )?([\w\-]+)", lowered)
+    if match:
+        name = match.group(1).replace("-", "")
+        if name != "sst2":
+            overrides["dataset"] = name
+    return overrides
+
+
 def _detect_irreversible(text: str) -> dict | None:
     lowered = text.lower()
     if "checkpoint" in lowered and re.search(
@@ -158,6 +186,7 @@ def make_intake_profiler(ctx: AgentContext):
         parsed_data = {k: v for k, v in data.items() if k in fields and k != "raw_text"}
         for key, value in hints.items():
             parsed_data.setdefault(key, value)
+        parsed_data.update(_explicit_overrides(raw))
         try:
             request = ParsedRequest(raw_text=raw, **parsed_data)
         except Exception:
@@ -238,6 +267,18 @@ def make_planner(ctx: AgentContext):
                 memory_entries[-1]["fix_applied"] = valid_fix
                 memory_entries[-1]["outcome"] = "applied"
                 memory_mod.append_entry(ctx.run_dir, memory_entries[-1])
+        # Keep the documented effective-batch invariant (16-64) when the
+        # requested worker count would otherwise blow past it: shrink
+        # gradient accumulation first (floor 1) instead of emitting a
+        # spec the trainer must refuse.
+        eff = (spec.per_worker_batch_size
+               * spec.gradient_accumulation_steps * spec.num_workers)
+        if eff > 64 and spec.gradient_accumulation_steps > 1:
+            accum = max(
+                1, 64 // (spec.per_worker_batch_size * spec.num_workers))
+            spec = TrainingSpec(
+                **{**spec.model_dump(),
+                   "gradient_accumulation_steps": accum})
         spec_version = int(state.get("spec_version", 0)) + 1
         attempt = int(state.get("attempt", 0))
         plan_steps = [
@@ -677,8 +718,19 @@ def make_repair_router(ctx: AgentContext):
             return updates
 
         if state.get("ray_job_status") == "succeeded":
-            updates.update({"route_decision": "verify", "status": "verifying"})
-            return updates
+            # The training run succeeded but verification did not pass.
+            # One re-verification is allowed per attempt (a checkpoint
+            # flush can lag), but verification is deterministic: routing
+            # back to verify a second time would loop until the graph
+            # recursion limit. Fall through to the give-up logic instead.
+            attempt = int(state.get("attempt", 0))
+            if int(state.get("verify_retry_attempt", -1)) != attempt:
+                updates.update({
+                    "route_decision": "verify",
+                    "status": "verifying",
+                    "verify_retry_attempt": attempt,
+                })
+                return updates
         exceeded = working.exceeded()
         if exceeded:
             return give_up(f"budget_exceeded:{exceeded}", outcome="budget_exceeded")
@@ -759,6 +811,15 @@ def make_verifier(ctx: AgentContext):
         if request.cpu_only and spec.backend != "gloo":
             honors = False
             details["backend_mismatch"] = "cpu_only request but backend is not gloo"
+        if not request.cpu_only and spec.backend == "gloo":
+            honors = False
+            details["accelerator_mismatch"] = (
+                "request asked for GPU but the local demo ran on CPU "
+                "(gloo backend)")
+        if spec.epochs != request.epochs:
+            honors = False
+            details["epochs_mismatch"] = (
+                f"spec {spec.epochs} != request {request.epochs}")
         if _memory_gb(spec.resources_per_worker_memory) > _memory_gb(
                 request.max_memory_per_worker):
             honors = False
