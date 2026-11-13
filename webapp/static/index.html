@@ -93,10 +93,10 @@
                      padding: 9px 14px; border-radius: var(--r-md); cursor: pointer; font-weight: 600; }
   .hint { color: var(--ink-2); font-size: 12.5px; margin: 6px 0 0; }
   .presets { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 10px; align-items: center; }
-  .presets span { font-size: 12.5px; color: var(--ink-2); font-weight: 600; }
-  button.preset { background: var(--accent-soft); border: 0; color: var(--accent-dark);
-                  padding: 7px 12px; border-radius: 999px; cursor: pointer; font-size: 13px; font-weight: 600; }
-  button.preset:hover { background: #d7e3fa; }
+  .presets span { font-size: 11px; letter-spacing: .07em; text-transform: uppercase; color: var(--ink-3); font-weight: 700; }
+  button.preset { background: var(--surface); border: 1px solid var(--line); color: var(--ink-2);
+                  padding: 6px 12px; border-radius: 999px; cursor: pointer; font-size: 12.5px; font-weight: 500; }
+  button.preset:hover { border-color: var(--line-strong); color: var(--ink); background: var(--surface-2); }
   .ctx { display: inline-flex; align-items: center; gap: 7px; font-weight: 600; min-width: 0; }
   .ctx .dot { width: 9px; height: 9px; border-radius: 50%; background: #94a3b8; flex: none; }
   .ctx.on .dot { background: var(--ok); } .ctx.ready .dot { background: var(--warn); }
@@ -116,32 +116,56 @@
   .chat-head input { width: 150px; padding: 5px 8px; font-size: 12px; border: 0;
                      background: var(--surface-2); border-radius: var(--r-sm);
                      font-family: ui-monospace, Menlo, monospace; }
-  .chat-list { flex: 1 1 auto; overflow-y: auto; padding: 14px 12px;
-               display: flex; flex-direction: column; gap: 10px; background: var(--surface); }
-  .composer { flex: none; border-top: 1px solid var(--line); padding: 4px 12px 12px; background: var(--surface); }
-  .composer .presets { margin-top: 8px; }
-  .composer label { margin-top: 8px; }
-  details.run-options { margin-top: 8px; border: 1px solid var(--line); border-radius: var(--r-md);
-                        padding: 6px 10px; background: var(--surface); }
-  details.run-options summary { cursor: pointer; font-size: 12.5px; font-weight: 600; color: var(--ink-2); }
-  details.run-options .row { gap: 8px; margin-top: 4px; }
+  .chat-list { flex: 1 1 auto; overflow-y: auto; padding: 16px 16px 10px;
+               display: flex; flex-direction: column; gap: 12px; background: var(--surface);
+               scrollbar-width: thin; scrollbar-color: #ccd4df transparent; }
+  .pane-left, .runs-wrap { scrollbar-width: thin; scrollbar-color: #ccd4df transparent; }
+  .chat-list::-webkit-scrollbar, .pane-left::-webkit-scrollbar, .runs-wrap::-webkit-scrollbar { width: 8px; height: 8px; }
+  .chat-list::-webkit-scrollbar-thumb, .pane-left::-webkit-scrollbar-thumb, .runs-wrap::-webkit-scrollbar-thumb { background: #ccd4df; border-radius: 4px; }
+  .chat-list::-webkit-scrollbar-thumb:hover, .pane-left::-webkit-scrollbar-thumb:hover, .runs-wrap::-webkit-scrollbar-thumb:hover { background: #aeb9c8; }
+  .chat-list::-webkit-scrollbar-track, .pane-left::-webkit-scrollbar-track, .runs-wrap::-webkit-scrollbar-track { background: transparent; }
+
+  /* ---- composer: one floating card, ChatGPT/Codex style ---- */
+  .composer { flex: none; border-top: 1px solid var(--line); padding: 8px 14px 10px; background: var(--surface); }
+  .composer .presets { margin: 2px 2px 10px; }
+  .vh { position: absolute; width: 1px; height: 1px; overflow: hidden;
+        clip: rect(0 0 0 0); clip-path: inset(50%); white-space: nowrap; }
+  .composer-card { border: 1px solid var(--line-strong); border-radius: 22px; background: #fff;
+                   box-shadow: 0 10px 30px rgba(16, 24, 40, .09), 0 1px 3px rgba(16, 24, 40, .06);
+                   padding: 10px 12px 8px;
+                   transition: border-color .15s ease, box-shadow .15s ease; }
+  .composer-card:focus-within { border-color: var(--ink-3);
+                   box-shadow: 0 12px 34px rgba(16, 24, 40, .12), 0 1px 3px rgba(16, 24, 40, .07); }
+  .composer-card textarea { border: 0; background: transparent; box-shadow: none; resize: none;
+                   width: 100%; font-size: 15px; line-height: 1.5; padding: 4px 6px 2px; color: var(--ink); }
+  .composer-card textarea:focus { outline: none; }
+  .composer-card textarea::placeholder { color: var(--ink-3); }
+  details.run-options { margin-top: 2px; padding: 2px 6px 0; }
+  details.run-options summary { cursor: pointer; font-size: 12px; font-weight: 500; color: var(--ink-3);
+                        list-style: none; display: inline-flex; align-items: center; gap: 6px; }
+  details.run-options summary::-webkit-details-marker { display: none; }
+  details.run-options summary:hover { color: var(--ink-2); }
+  details.run-options .row { gap: 8px; margin-top: 6px; border-top: 1px solid var(--line); padding-top: 4px; }
   details.run-options .row > div { min-width: 82px; flex: 1; }
   details.run-options .row label { font-size: 11.5px; margin: 6px 0 3px; }
   details.run-options .row input, details.run-options .row select { padding: 6px 7px; font-size: 13px; }
-  .send-row { display: flex; gap: 10px; align-items: center; margin-top: 10px; }
-  button.send { flex: none; width: 46px; height: 46px; border-radius: 50%; border: 0;
-                background: var(--accent); color: #fff; font-size: 19px; line-height: 1;
-                cursor: pointer; box-shadow: 0 3px 10px rgba(36, 86, 214, .35); }
-  button.send:hover { background: var(--accent-dark); }
-  button.send:disabled { background: #9ca3af; cursor: not-allowed; box-shadow: none; }
+  .composer-bar { display: flex; align-items: center; gap: 10px; margin-top: 6px; padding: 0 2px; }
+  .composer-note { font-size: 11.5px; color: var(--ink-3); }
+  button.send { flex: none; margin-left: auto; width: 36px; height: 36px; border-radius: 50%; border: 0;
+                background: var(--ink); color: #fff; cursor: pointer; padding: 0;
+                display: grid; place-items: center; transition: background .15s ease, transform .1s ease; }
+  button.send:hover { background: #000; }
+  button.send:active { transform: scale(.94); }
+  button.send:disabled { background: var(--line-strong); cursor: not-allowed; }
+  .composer-status { margin-top: 8px; padding: 0 4px; font-size: 11.5px; }
 
   /* ---- chat messages ---- */
   .msg { max-width: 88%; padding: 9px 12px; border-radius: var(--r-lg); font-size: 14.5px;
          line-height: 1.55; overflow-wrap: break-word; }
-  .msg.user { align-self: flex-end; background: var(--accent); color: #fff;
-              border-bottom-right-radius: 4px; white-space: pre-wrap; }
-  .msg.assistant { align-self: flex-start; background: var(--surface-2);
-                   border-bottom-left-radius: 4px; }
+  .msg.user { align-self: flex-end; background: var(--surface-2); color: var(--ink);
+              border-radius: 18px; padding: 10px 14px; white-space: pre-wrap; }
+  .msg.assistant { align-self: flex-start; background: none; max-width: 97%;
+                   padding: 2px 2px; border-radius: 0; }
   .msg.system { align-self: flex-start; max-width: 96%; background: none; color: var(--ink-2);
                 font-size: 12.5px; padding: 2px 4px; }
   .msg.system::before { content: "\2022"; margin-right: 6px; color: var(--idle); }
@@ -271,13 +295,13 @@
   .meter { margin-top: 7px; }
 
   /* ---- approval gate card (inline, docked above the composer) ---- */
-  .gate-dock { display: none; flex: none; padding: 10px 12px; background: var(--surface-2);
-               border-top: 1px solid var(--line); max-height: 52%; overflow-y: auto;
-               box-shadow: 0 -8px 24px rgba(16, 24, 40, .10); }
+  .gate-dock { display: none; flex: none; padding: 10px 14px 2px; background: var(--surface);
+               max-height: 52%; overflow-y: auto; }
   .gate-dock.show { display: block; }
-  .modal { background: var(--surface); border-radius: var(--r-lg); width: 100%;
-           padding: 14px 16px; border: 1px solid var(--line-strong); border-top: 4px solid var(--accent);
-           box-shadow: var(--shadow-pop); animation: gate-in .16s ease-out; }
+  .modal { background: var(--surface); border-radius: 18px; width: 100%;
+           padding: 14px 16px; border: 1px solid var(--line-strong); border-top: 3px solid var(--accent);
+           box-shadow: 0 16px 40px rgba(16, 24, 40, .16), 0 2px 6px rgba(16, 24, 40, .08);
+           animation: gate-in .16s ease-out; }
   @keyframes gate-in { from { transform: translateY(8px); opacity: 0; } }
   .modal.g2 { border-top-color: var(--bad); }
   .modal h3 { margin: 0 0 6px; font-size: 17px; text-transform: none; letter-spacing: 0; color: var(--ink); }
@@ -470,25 +494,27 @@
           <button type="button" class="preset" id="preset-followup">Follow-up: run 3 epochs (same session)</button>
           <button type="button" class="preset" id="preset-pretrain">Pretrain a tiny LM from scratch</button>
         </div>
-        <label for="request-text">What should the agent do?</label>
-        <textarea id="request-text" rows="2">Fine-tune DistilBERT on SST-2 with 2 CPU workers</textarea>
-        <p class="hint">Local CPU only &middot; the agent plans, launches, repairs, then verifies.</p>
-        <details class="run-options" id="run-options">
-          <summary>Run options — optional; the sentence above wins</summary>
-          <div class="row">
-            <div><label>Model</label>
-              <select id="f-model"><option>distilbert-base-uncased</option></select></div>
-            <div><label>Dataset</label>
-              <select id="f-dataset"><option>sst2</option></select></div>
-            <div><label>CPU workers</label><input id="f-workers" type="number" value="2" min="1"></div>
-            <div><label>Epochs</label><input id="f-epochs" type="number" value="1" min="1"></div>
-            <div><label>Batch / worker</label><input id="f-batch" type="number" value="8" min="1"></div>
+        <div class="composer-card">
+          <label class="vh" for="request-text">What should the agent do?</label>
+          <textarea id="request-text" rows="2" placeholder="Message TrainPilot — describe the training job in plain language&hellip;">Fine-tune DistilBERT on SST-2 with 2 CPU workers</textarea>
+          <details class="run-options" id="run-options">
+            <summary><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 8h10M18 8h2M4 16h4M12 16h8"/><circle cx="16" cy="8" r="2.2"/><circle cx="10" cy="16" r="2.2"/></svg>Run options — optional; the sentence above wins</summary>
+            <div class="row">
+              <div><label>Model</label>
+                <select id="f-model"><option>distilbert-base-uncased</option></select></div>
+              <div><label>Dataset</label>
+                <select id="f-dataset"><option>sst2</option></select></div>
+              <div><label>CPU workers</label><input id="f-workers" type="number" value="2" min="1"></div>
+              <div><label>Epochs</label><input id="f-epochs" type="number" value="1" min="1"></div>
+              <div><label>Batch / worker</label><input id="f-batch" type="number" value="8" min="1"></div>
+            </div>
+          </details>
+          <div class="composer-bar">
+            <span class="composer-note">Local CPU only &middot; plans, launches, repairs, then verifies</span>
+            <button class="send" id="btn-run" title="Start run (Enter)" aria-label="Start run"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19V5"/><path d="M5 12l7-7 7 7"/></svg></button>
           </div>
-        </details>
-        <div class="send-row">
-          <button class="send" id="btn-run" title="Start run (Enter)" aria-label="Start run">&#10148;</button>
-          <span id="run-status" class="muted">No run yet — runs execute one at a time.</span>
         </div>
+        <div class="composer-status"><span id="run-status" class="muted">No run yet — runs execute one at a time.</span></div>
       </div>
     </div>
 

@@ -841,6 +841,10 @@ The console UI was redesigned later that day after a UI/UX audit
 accent colour, a real type scale, a capped Recent runs table, the
 composer's structured fields folded into "Run options", and skipped
 states in the process diagram); all screenshots were regenerated
-afterwards, and the walkthrough still passes 18/18. Your numbers should match exactly for the deterministic
+afterwards, and the walkthrough still passes 18/18. The chat pane was
+then refined in the style of modern AI chat tools: the composer is a
+single floating rounded card (borderless input, the run options and a
+round send button inside it), assistant messages render as plain text
+without bubbles, and user messages use a soft grey capsule. Your numbers should match exactly for the deterministic
 flows (tests, smoke training, lab50 demo systems) and will differ —
 by design — for real cluster experiments.
