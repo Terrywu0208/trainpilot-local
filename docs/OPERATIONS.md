@@ -435,6 +435,13 @@ header badge reads **Local · CPU-only demo**, one status chip shows the
 server health, one shows **LLM: stub · offline (no API calls, no
 cost)**, and one shows the live run state.
 
+The Run Console uses the two-pane layout of mainstream AI tools:
+**left** is a process diagram — the agent's 12 steps as a vertical,
+live diagram, the attempt timeline, and the verification panel;
+**right** is a chat — your requests as bubbles, the agent's progress,
+diagnoses and verdict as messages, and the composer (with the
+approval-gate cards docked above it) at the bottom.
+
 ### D.1 Start it
 
 ```console
@@ -467,9 +474,9 @@ D.5).
 ```mermaid
 flowchart TD
     A[Open the console<br/>header chips: server online,<br/>LLM stub · offline] --> B[Pick the preset<br/>'Canonical fine-tune']
-    B --> C[Click 'Start run'<br/>run is queued, then running]
+    B --> C[Send the request<br/>run is queued, then running]
     C --> D{Pipeline reaches<br/>the approval gate}
-    D --> E[GATE 1 modal:<br/>'Approve the first launch?']
+    D --> E[GATE 1 card:<br/>'Approve the first launch?']
     E -->|Approve| F[Agent trains on local CPU<br/>pipeline nodes light up green]
     E -->|Reject| Z[Run stops safely<br/>nothing was launched]
     F --> G[Final verification:<br/>4 badges + accuracy meter]
@@ -480,20 +487,21 @@ flowchart TD
     K --> L[Explore: Failure Memory ·<br/>Benchmark Dashboard · Replay]
 ```
 
-**Step 1 — the console before anything runs.** The pipeline shows all
-12 agent nodes idle; the session-context indicator reads "none yet";
-the two preset buttons fill the request box for you.
+**Step 1 — the console before anything runs.** The diagram (left)
+shows all 12 agent steps idle; the chat (right) is empty, its
+session-context indicator reads "none yet", and the two preset chips
+above the composer fill the request box for you.
 
 ![Run Console before the first run](images/01-console-initial.png)
 
 **Step 2 — Gate 1: nothing trains without a human.** Submit the
 canonical request (`Fine-tune DistilBERT on SST-2 with 2 CPU
-workers`). The run starts, walks the pipeline to the approval gate,
-and stops. The modal names the exact action (tool `apply_rayjob`, the
+workers`). The run starts, walks the diagram to the approval gate,
+and stops. The card names the exact action (tool `apply_rayjob`, the
 job name, the attempt). Every decision is written to the run's
 `audit_log.jsonl` with gate, actor, timestamp and a payload hash.
 
-![Gate 1 approval modal](images/02-gate1-approval.png)
+![Gate 1 approval card, docked above the composer](images/02-gate1-approval.png)
 
 **Step 3 — verified success.** Approve, and the agent trains for real
 on this machine's CPU (the local smoke trainer; about 5 seconds).
@@ -558,7 +566,7 @@ Two safety properties to notice while you play with it:
 
 - **Gate 2 is real, and it is different.** Ask for something
   irreversible in the request itself — e.g. add `, and delete old
-  checkpoints to free up space` — and a red **Gate 2** modal appears
+  checkpoints to free up space` — and a red **Gate 2** card appears
   *before* anything is launched, listing what would be deleted; its
   Approve button stays disabled until you tick "I understand this
   cannot be undone". Rejecting it ends the run safely with zero
@@ -621,11 +629,11 @@ $ pip install playwright && python -m playwright install chromium
 $ .venv/bin/uvicorn webapp.main:app --port 8126 &   # the app under test
 $ python scripts/ui_walkthrough.py --base http://127.0.0.1:8126 \
     --shots docs/images
-UI walkthrough: 15/15 checks passed
+UI walkthrough: 18/18 checks passed
 ```
 
-It drives a real Chromium browser — presets, the Gate 1 modal, the
-verdict, the follow-up, and all four views — asserts 15 checks, and
+It drives a real Chromium browser — presets, the Gate 1 card, the
+verdict, the follow-up, and all four views — asserts 18 checks, and
 writes the seven screenshots used in this section.
 
 **Screenshot point S6:** the Run Console at three moments — (1) Gate 1

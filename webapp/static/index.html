@@ -55,15 +55,82 @@
   button.preset { background: #eef3ff; border: 1px solid #c9d6f5; color: var(--blue-dark);
                   padding: 7px 12px; border-radius: 999px; cursor: pointer; font-size: 13px; }
   button.preset:hover { background: #dbeafe; }
-  .session-bar { background: #eef3ff; border: 1px solid #c9d6f5; border-radius: 8px;
-                 padding: 10px 14px; font-size: 13px; margin-bottom: 14px;
-                 display: flex; gap: 14px; flex-wrap: wrap; align-items: center; }
-  .session-bar input { width: 200px; }
   .ctx { display: inline-flex; align-items: center; gap: 7px; font-weight: 600; }
-  .ctx .dot { width: 9px; height: 9px; border-radius: 50%; background: #94a3b8; }
+  .ctx .dot { width: 9px; height: 9px; border-radius: 50%; background: #94a3b8; flex: none; }
   .ctx.on .dot { background: var(--green); } .ctx.ready .dot { background: var(--amber); }
 
-  /* ---- pipeline diagram ---- */
+  /* ---- two-pane console layout ---- */
+  .console-split { display: grid; grid-template-columns: 55fr 45fr; gap: 18px; align-items: start; }
+  .pane-left { min-width: 0; }
+  .pane-right { min-width: 0; position: sticky; top: 12px; height: calc(100vh - 24px);
+                min-height: 520px; display: flex; flex-direction: column;
+                border: 1px solid var(--line); border-radius: 12px; overflow: hidden;
+                background: #fff; }
+  .chat-head { display: flex; gap: 12px; flex-wrap: wrap; align-items: center;
+               padding: 10px 14px; background: #eef3ff; border-bottom: 1px solid #c9d6f5;
+               font-size: 13px; flex: none; }
+  .chat-head label { display: inline; margin: 0; }
+  .chat-head input { width: 170px; padding: 6px 8px; font-size: 13px; }
+  .chat-list { flex: 1 1 auto; overflow-y: auto; padding: 14px 12px;
+               display: flex; flex-direction: column; gap: 10px; background: #fbfcfe; }
+  .composer { flex: none; border-top: 1px solid var(--line); padding: 4px 12px 12px; background: #fff; }
+  .composer .presets { margin-top: 8px; }
+  .composer label { margin-top: 8px; }
+  .composer .row { gap: 8px; margin-top: 2px; }
+  .composer .row > div { min-width: 82px; }
+  .composer .row label { font-size: 11.5px; margin: 6px 0 3px; }
+  .composer .row input, .composer .row select { padding: 6px 7px; font-size: 13px; }
+  .send-row { display: flex; gap: 10px; align-items: center; margin-top: 10px; }
+  button.send { flex: none; width: 46px; height: 46px; border-radius: 50%; border: 0;
+                background: var(--blue); color: #fff; font-size: 19px; line-height: 1;
+                cursor: pointer; box-shadow: 0 3px 10px rgba(37,99,235,.35); }
+  button.send:hover { background: var(--blue-dark); }
+  button.send:disabled { background: #9ca3af; cursor: not-allowed; box-shadow: none; }
+
+  /* ---- chat messages ---- */
+  .msg { max-width: 88%; padding: 9px 12px; border-radius: 14px; font-size: 13.5px;
+         line-height: 1.45; overflow-wrap: break-word; }
+  .msg.user { align-self: flex-end; background: var(--blue); color: #fff;
+              border-bottom-right-radius: 4px; white-space: pre-wrap; }
+  .msg.assistant { align-self: flex-start; background: #f1f5f9; border: 1px solid var(--line);
+                   border-bottom-left-radius: 4px; }
+  .msg.system { align-self: center; max-width: 96%; background: none; color: var(--muted);
+                font-size: 12px; font-style: italic; text-align: center; padding: 2px 8px; }
+  .msg .frow { margin: 3px 0; }
+  .msg .mtitle { font-weight: 800; font-size: 14px; }
+  .msg .msub { font-size: 12.5px; margin-top: 4px; white-space: pre-wrap; }
+  .msg.verdict-card { align-self: stretch; max-width: 100%; border: 2px solid; border-radius: 10px; }
+  .msg.verdict-card.ok { background: #dcfce7; border-color: var(--green); color: #14532d; }
+  .msg.verdict-card.bad { background: #fee2e2; border-color: var(--red); color: #7f1d1d; }
+  .msg.verdict-card.warn { background: #fef3c7; border-color: var(--amber); color: #78350f; }
+
+  /* ---- vertical process diagram (left pane) ---- */
+  .vpipe { position: relative; margin: 8px 0 4px 2px; }
+  .vpipe::before { content: ""; position: absolute; left: 15px; top: 16px; bottom: 16px;
+                   width: 2px; background: #dbe2ef; }
+  .vnode { display: flex; gap: 10px; align-items: flex-start; padding: 5px 8px 5px 2px;
+           position: relative; border-radius: 8px; color: var(--muted); transition: all .25s; }
+  .vnode .vicon { flex: none; width: 26px; height: 26px; border-radius: 50%; z-index: 1;
+                  border: 2px solid #cbd5e1; background: var(--grey-bg); color: var(--muted);
+                  display: flex; align-items: center; justify-content: center;
+                  font-size: 13px; font-weight: 800; }
+  .vnode .vmain { flex: 1; min-width: 0; padding-top: 3px; }
+  .vnode .plabel { font-size: 13.5px; font-weight: 700; color: var(--ink); }
+  .vnode .praw { font-size: 10.5px; font-family: ui-monospace, Menlo, monospace;
+                 opacity: .7; margin-left: 6px; }
+  .vnode .pdetail { display: block; font-size: 12px; color: var(--muted); margin-top: 1px; }
+  .vnode .pdetail:empty { display: none; }
+  .vnode.active { background: #eff6ff; }
+  .vnode.active .vicon { border-color: var(--blue); background: #dbeafe; color: var(--blue-dark);
+                         animation: pulse 1s infinite; }
+  .vnode.done .vicon { border-color: var(--green); background: var(--green-bg); color: #166534; }
+  .vnode.done .plabel { color: #166534; }
+  .vnode.failed .vicon { border-color: var(--red); background: var(--red-bg); color: #991b1b; }
+  .vnode.failed .plabel { color: #991b1b; }
+  .vnode.loop { box-shadow: inset 0 0 0 2px rgba(217,119,6,.5); background: var(--amber-bg); }
+  .vnode.loop .vicon { border-color: var(--amber); }
+
+  /* ---- pipeline diagram (horizontal, replay view) ---- */
   .pipe { display: flex; flex-wrap: wrap; align-items: stretch; gap: 4px; margin: 10px 0 4px; }
   .pnode { min-width: 108px; flex: 1 1 108px; max-width: 150px; text-align: center;
            padding: 8px 5px 7px; border-radius: 10px; border: 2px solid #cbd5e1;
@@ -88,6 +155,9 @@
 
   /* ---- attempt story ---- */
   .story { display: flex; gap: 6px; flex-wrap: wrap; align-items: stretch; margin: 10px 0; }
+  .story.vertical { flex-direction: column; flex-wrap: nowrap; align-items: stretch; }
+  .story.vertical .acard { width: 100%; }
+  .story.vertical .aarrow { transform: rotate(90deg); align-self: flex-start; margin-left: 14px; }
   .acard { width: 258px; border: 1.5px solid var(--line); border-top: 6px solid #94a3b8;
            border-radius: 10px; padding: 11px 12px; background: #fff; }
   .acard.running { border-top-color: var(--blue); }
@@ -124,7 +194,7 @@
   .verdict.warn { background: #fef3c7; border: 2px solid var(--amber); color: #78350f; }
   .verdict .vtitle { font-size: 17px; font-weight: 800; }
   .verdict .vsub { font-size: 13.5px; font-weight: 400; margin-top: 4px; white-space: pre-wrap; }
-  .vgrid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  .vgrid { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
            gap: 10px; margin: 10px 0; }
   .vbadge { border: 2px solid #cbd5e1; border-radius: 10px; padding: 12px 14px; background: #f8fafc; }
   .vbadge .vic { font-size: 25px; line-height: 1; }
@@ -135,21 +205,21 @@
   .vbadge .accnum { font-size: 27px; font-weight: 800; margin-top: 2px; }
   .meter { margin-top: 7px; }
 
-  /* ---- approval modal ---- */
-  .overlay { position: fixed; inset: 0; background: rgba(15,23,42,.55); display: none;
-             z-index: 60; align-items: center; justify-content: center; padding: 16px; }
-  .overlay.show { display: flex; }
-  .modal { background: #fff; border-radius: 12px; max-width: 540px; width: 100%;
-           padding: 20px 22px; border-top: 9px solid var(--blue);
-           box-shadow: 0 18px 50px rgba(0,0,0,.35); animation: pulse 1.6s infinite; }
-  .modal.g2 { border-top-color: var(--red); }
-  .modal h3 { margin: 0 0 6px; font-size: 18px; }
-  .modal .gatesub { font-size: 13px; font-weight: 700; letter-spacing: .4px; text-transform: uppercase; }
+  /* ---- approval gate card (inline, docked above the composer) ---- */
+  .gate-dock { display: none; flex: none; padding: 10px 12px; background: #f8fafc;
+               border-top: 2px solid var(--amber); max-height: 46%; overflow-y: auto; }
+  .gate-dock.show { display: block; }
+  .modal { background: #fff; border-radius: 12px; width: 100%;
+           padding: 14px 16px; border: 2px solid var(--blue); border-top: 9px solid var(--blue);
+           box-shadow: 0 8px 26px rgba(15,23,42,.20); animation: pulse 1.6s infinite; }
+  .modal.g2 { border-color: var(--red); border-top-color: var(--red); }
+  .modal h3 { margin: 0 0 6px; font-size: 17px; }
+  .modal .gatesub { font-size: 12.5px; font-weight: 700; letter-spacing: .4px; text-transform: uppercase; }
   .modal.g1 .gatesub { color: var(--blue-dark); } .modal.g2 .gatesub { color: var(--red); }
-  .modal .adesc { font-size: 14.5px; margin: 8px 0; }
+  .modal .adesc { font-size: 14px; margin: 8px 0; }
   .modal pre.args { background: #0b1220; color: #d1e7ff; padding: 9px; border-radius: 6px;
                     font-size: 12px; white-space: pre-wrap; max-height: 150px; overflow: auto; }
-  .modal .mrow { display: flex; gap: 10px; margin-top: 14px; flex-wrap: wrap; }
+  .modal .mrow { display: flex; gap: 10px; margin-top: 12px; flex-wrap: wrap; }
   .modal button.approve { color: #fff; border: 0; padding: 11px 18px; border-radius: 6px;
                           cursor: pointer; font-weight: 700; font-size: 14px; }
   .modal.g1 button.approve { background: var(--blue); }
@@ -206,11 +276,17 @@
   .status-pill.awaiting_approval { background: #fef3c7; color: #92400e; }
   .status-pill.finished { background: #dcfce7; color: #166534; }
   .status-pill.error { background: #fee2e2; color: #991b1b; }
+  .status-pill.interrupted { background: #e2e8f0; color: #475569; }
   details.eventlog { margin-top: 16px; }
   details.eventlog summary { cursor: pointer; font-weight: 700; font-size: 14px; }
   pre.eventlog { background: #0b1220; color: #a5c8f0; padding: 10px; border-radius: 6px;
                  font-size: 11.5px; white-space: pre-wrap; max-height: 260px; overflow: auto; }
   .muted { color: var(--muted); font-size: 13px; }
+  @media (max-width: 980px) {
+    .console-split { grid-template-columns: 1fr; }
+    .pane-right { position: static; height: 72vh; border-left: 1px solid var(--line); }
+    .acard { width: 100%; }
+  }
   @media (max-width: 640px) { .acard { width: 100%; } header h1 { font-size: 17px; } }
 </style>
 </head>
@@ -235,66 +311,102 @@
 </nav>
 <main>
 
-<!-- ============ View 1: Run Console ============ -->
+<!-- ============ View 1: Run Console (two-pane: diagram + chat) ============ -->
 <section id="view-console" class="view active">
-  <div class="session-bar">
-    <span><label for="session-id" style="display:inline;margin:0">Session:</label>
-      <input id="session-id" value="demo-session"></span>
-    <span class="ctx" id="session-ctx"><span class="dot"></span><span id="session-ctx-text">Session context: none yet &mdash; this session has not completed a run.</span></span>
+  <div class="console-split">
+
+    <!-- LEFT pane: the process diagram — watch it work -->
+    <div class="pane-left">
+      <div class="dim" id="console-dim">
+        <div id="plan-summary" class="plan-card"></div>
+
+        <h3>Process diagram &mdash; watch it work</h3>
+        <div class="vpipe" id="plan-nodes"></div>
+        <div class="loop-strip" id="loop-strip"></div>
+
+        <h3>Attempts</h3>
+        <div class="story vertical" id="story"><div class="empty-note" id="story-empty">No attempts yet. Start a run and each attempt will appear here as a card: failures show the diagnosis and the fix that gets applied next; the final card shows the verified accuracy.</div></div>
+
+        <div class="verdict" id="verdict"></div>
+
+        <h3>Final verification</h3>
+        <div class="vgrid" id="vgrid">
+          <div class="vbadge" id="vb-exists"><div class="vic">&#8226;</div><div class="vlab">Checkpoint exists</div><div class="vnote">Waiting for a result&hellip;</div></div>
+          <div class="vbadge" id="vb-loadable"><div class="vic">&#8226;</div><div class="vlab">Checkpoint loadable</div><div class="vnote">Waiting for a result&hellip;</div></div>
+          <div class="vbadge" id="vb-accuracy"><div class="vic">&#8226;</div><div class="vlab">Validation accuracy</div><div class="vnote">Status: UNVERIFIED &mdash; no result yet.</div><div class="meter" id="acc-meter"></div></div>
+          <div class="vbadge" id="vb-config"><div class="vic">&#8226;</div><div class="vlab">Config honors request</div><div class="vnote">Waiting for a result&hellip;</div></div>
+        </div>
+      </div>
+
+      <h3>Recent runs</h3>
+      <table class="runs-list"><thead><tr><th>Run</th><th>Status</th><th>Success</th><th>Attempts</th><th>Request</th></tr></thead>
+      <tbody id="runs-rows"><tr><td colspan="5" class="muted">Loading&hellip;</td></tr></tbody></table>
+
+      <details class="eventlog" id="event-log-wrap">
+        <summary>Event log (raw SSE events, for debugging)</summary>
+        <pre class="eventlog" id="event-log"></pre>
+      </details>
+    </div>
+
+    <!-- RIGHT pane: the chat — talk to the agent -->
+    <div class="pane-right">
+      <div class="chat-head">
+        <span><label for="session-id">Session:</label>
+          <input id="session-id" value="demo-session"></span>
+        <span class="ctx" id="session-ctx"><span class="dot"></span><span id="session-ctx-text">Session context: none yet &mdash; this session has not completed a run.</span></span>
+      </div>
+
+      <div class="chat-list" id="chat-messages">
+        <div class="msg system">Ask the agent to fine-tune a model. Its step-by-step progress appears in the diagram on the left; the conversation happens here.</div>
+      </div>
+
+      <!-- Approval gate card: docked above the composer while a gate is pending -->
+      <div class="gate-dock" id="gate-dock">
+        <div class="modal" id="gate-modal">
+          <div class="gatesub" id="gate-kind"></div>
+          <h3 id="gate-title"></h3>
+          <p class="adesc" id="gate-desc"></p>
+          <div id="gate-files"></div>
+          <pre class="args" id="gate-args" style="display:none"></pre>
+          <label class="confirm" id="gate-confirm-row" style="display:none">
+            <input type="checkbox" id="gate-confirm"> I understand this cannot be undone</label>
+          <div class="mrow">
+            <button class="approve" id="gate-approve"></button>
+            <button class="reject" id="gate-reject"></button>
+          </div>
+          <p class="muted" id="gate-note"></p>
+        </div>
+      </div>
+
+      <div class="composer dim">
+        <div class="presets">
+          <span>Presets:</span>
+          <button type="button" class="preset" id="preset-canonical">Canonical fine-tune</button>
+          <button type="button" class="preset" id="preset-followup">Follow-up: run 3 epochs (same session)</button>
+        </div>
+        <label for="request-text">What should the agent do?</label>
+        <textarea id="request-text" rows="2">Fine-tune DistilBERT on SST-2 with 2 CPU workers</textarea>
+        <p class="hint">Runs entirely on local CPU: a DistilBERT fine-tune on SST-2, submitted as a job
+        with 2 CPU workers. The agent plans the run, launches it, and repairs failures within
+        3 attempts &mdash; then an independent verifier checks the checkpoint before anything
+        is called a success.</p>
+        <div class="row">
+          <div><label>Model</label>
+            <select id="f-model"><option>distilbert-base-uncased</option></select></div>
+          <div><label>Dataset</label>
+            <select id="f-dataset"><option>sst2</option></select></div>
+          <div><label>CPU workers</label><input id="f-workers" type="number" value="2" min="1"></div>
+          <div><label>Epochs</label><input id="f-epochs" type="number" value="1" min="1"></div>
+          <div><label>Batch / worker</label><input id="f-batch" type="number" value="8" min="1"></div>
+        </div>
+        <div class="send-row">
+          <button class="send" id="btn-run" title="Start run (Enter)" aria-label="Start run">&#10148;</button>
+          <span id="run-status" class="muted">No run yet. Runs execute one at a time; a new run queues while another is active. Enter sends, Shift+Enter adds a newline.</span>
+        </div>
+      </div>
+    </div>
+
   </div>
-
-  <div class="dim" id="console-dim">
-    <h3>Request</h3>
-    <label for="request-text">What should the agent do?</label>
-    <textarea id="request-text" rows="2">Fine-tune DistilBERT on SST-2 with 2 CPU workers</textarea>
-    <p class="hint">Runs entirely on local CPU: a DistilBERT fine-tune on SST-2, submitted as a job
-    with 2 CPU workers. The agent plans the run, launches it, and repairs failures within
-    3 attempts &mdash; then an independent verifier checks the checkpoint before anything
-    is called a success.</p>
-    <div class="presets">
-      <span>Presets:</span>
-      <button type="button" class="preset" id="preset-canonical">Canonical fine-tune</button>
-      <button type="button" class="preset" id="preset-followup">Follow-up: run 3 epochs (same session)</button>
-    </div>
-    <div class="row">
-      <div><label>Model</label>
-        <select id="f-model"><option>distilbert-base-uncased</option></select></div>
-      <div><label>Dataset</label>
-        <select id="f-dataset"><option>sst2</option></select></div>
-      <div><label>CPU workers</label><input id="f-workers" type="number" value="2" min="1"></div>
-      <div><label>Epochs</label><input id="f-epochs" type="number" value="1" min="1"></div>
-      <div><label>Batch / worker</label><input id="f-batch" type="number" value="8" min="1"></div>
-    </div>
-    <p><button class="primary" id="btn-run">Start run</button>
-       <span id="run-status" class="muted">No run yet. Runs execute one at a time; a new run queues while another is active.</span></p>
-    <div id="plan-summary" class="plan-card"></div>
-
-    <h3>Agent pipeline &mdash; live</h3>
-    <div class="pipe" id="plan-nodes"></div>
-    <div class="loop-strip" id="loop-strip"></div>
-
-    <h3>Run story &mdash; attempts</h3>
-    <div class="story" id="story"><div class="empty-note" id="story-empty">No attempts yet. Start a run and each attempt will appear here as a card: failures show the diagnosis and the fix that gets applied next; the final card shows the verified accuracy.</div></div>
-
-    <div class="verdict" id="verdict"></div>
-
-    <h3>Final verification</h3>
-    <div class="vgrid" id="vgrid">
-      <div class="vbadge" id="vb-exists"><div class="vic">&#8226;</div><div class="vlab">Checkpoint exists</div><div class="vnote">Waiting for a result&hellip;</div></div>
-      <div class="vbadge" id="vb-loadable"><div class="vic">&#8226;</div><div class="vlab">Checkpoint loadable</div><div class="vnote">Waiting for a result&hellip;</div></div>
-      <div class="vbadge" id="vb-accuracy"><div class="vic">&#8226;</div><div class="vlab">Validation accuracy</div><div class="vnote">Status: UNVERIFIED &mdash; no result yet.</div><div class="meter" id="acc-meter"></div></div>
-      <div class="vbadge" id="vb-config"><div class="vic">&#8226;</div><div class="vlab">Config honors request</div><div class="vnote">Waiting for a result&hellip;</div></div>
-    </div>
-
-    <h3>Recent runs</h3>
-    <table class="runs-list"><thead><tr><th>Run</th><th>Status</th><th>Success</th><th>Attempts</th><th>Request</th></tr></thead>
-    <tbody id="runs-rows"><tr><td colspan="5" class="muted">Loading&hellip;</td></tr></tbody></table>
-  </div>
-
-  <details class="eventlog" id="event-log-wrap">
-    <summary>Event log (raw SSE events, for debugging)</summary>
-    <pre class="eventlog" id="event-log"></pre>
-  </details>
 </section>
 
 <!-- ============ View 2: Failure Memory ============ -->
@@ -342,24 +454,6 @@
 
 </main>
 
-<!-- ============ Approval modal ============ -->
-<div class="overlay" id="gate-overlay">
-  <div class="modal" id="gate-modal">
-    <div class="gatesub" id="gate-kind"></div>
-    <h3 id="gate-title"></h3>
-    <p class="adesc" id="gate-desc"></p>
-    <div id="gate-files"></div>
-    <pre class="args" id="gate-args" style="display:none"></pre>
-    <label class="confirm" id="gate-confirm-row" style="display:none">
-      <input type="checkbox" id="gate-confirm"> I understand this cannot be undone</label>
-    <div class="mrow">
-      <button class="approve" id="gate-approve"></button>
-      <button class="reject" id="gate-reject"></button>
-    </div>
-    <p class="muted" id="gate-note"></p>
-  </div>
-</div>
-
 <script>
 "use strict";
 /* ================= helpers ================= */
@@ -381,9 +475,19 @@ const NODE_LABELS = { intake_profiler: "Intake", planner: "Planner", coder: "Cod
 const ACC_THRESHOLD = 0.80;
 
 /* ================= pipeline rendering ================= */
-function buildPipe(el) {
+function buildPipe(el, vertical) {
   el.innerHTML = "";
   NODES.forEach((n, i) => {
+    if (vertical) {
+      const d = document.createElement("div");
+      d.className = "vnode"; d.id = el.id + "-node-" + n; d.title = n;
+      d.innerHTML = '<span class="vicon">&#9675;</span><span class="vmain">' +
+                    '<span class="plabel">' + esc(NODE_LABELS[n] || n) + '</span>' +
+                    '<span class="praw">' + esc(n) + '</span>' +
+                    '<span class="pdetail"></span></span>';
+      el.appendChild(d);
+      return;
+    }
     if (i > 0) { const a = document.createElement("span"); a.className = "parr"; a.textContent = "→"; el.appendChild(a); }
     const d = document.createElement("div");
     d.className = "pnode"; d.id = el.id + "-node-" + n; d.title = n;
@@ -392,21 +496,31 @@ function buildPipe(el) {
     el.appendChild(d);
   });
 }
+const NODE_ICONS = { "": "○", active: "◌", done: "✓", failed: "✗" };
 function setNode(pipeEl, name, cls) {
   const el = document.getElementById(pipeEl.id + "-node-" + name);
   if (!el) return;
   el.classList.remove("active", "done", "failed");
   if (cls) el.classList.add(cls);
+  const icon = el.querySelector(".vicon");
+  if (icon) icon.innerHTML = NODE_ICONS[cls || ""] || "○";
+}
+function setNodeDetail(pipeEl, name, text) {
+  const el = document.getElementById(pipeEl.id + "-node-" + name);
+  if (!el) return;
+  const d = el.querySelector(".pdetail");
+  if (d && text) d.textContent = text;
 }
 function resetPipe(pipeEl) {
   NODES.forEach(n => { setNode(pipeEl, n, ""); loopMark(pipeEl, n, false); });
+  pipeEl.querySelectorAll(".pdetail").forEach(d => { d.textContent = ""; });
 }
 function loopMark(pipeEl, name, on) {
   const el = document.getElementById(pipeEl.id + "-node-" + name);
   if (el) el.classList.toggle("loop", !!on);
 }
-buildPipe($("plan-nodes"));
-buildPipe($("replay-nodes"));
+buildPipe($("plan-nodes"), true);
+buildPipe($("replay-nodes"), false);
 
 /* ================= per-stream render context ================= */
 function makeCtx(prefix, pipeEl, storyEl, loopEl) {
@@ -515,14 +629,153 @@ function setSessionCtx(mode, text) {
   $("session-ctx-text").textContent = text;
 }
 
-/* ================= approval modal ================= */
+/* ================= chat transcript (right pane) =================
+   Messages are derived from the same SSE events the diagram consumes.
+   Every derived message is posted at most once per run (chatState.posted
+   is cleared whenever a new run is started or a finished run is opened),
+   so reloading a run rebuilds the identical transcript. */
+const chatState = { posted: new Set(), verdict: false };
+function resetChat() {
+  $("chat-messages").innerHTML = "";
+  chatState.posted.clear();
+  chatState.verdict = false;
+}
+function scrollChat() {
+  const el = $("chat-messages");
+  requestAnimationFrame(() => { el.scrollTop = el.scrollHeight; });
+}
+function addMsg(cls, build) {
+  const d = document.createElement("div");
+  d.className = "msg " + cls;
+  build(d);
+  $("chat-messages").appendChild(d);
+  scrollChat();
+  return d;
+}
+function chatOnce(key, fn) {
+  if (chatState.posted.has(key)) return;
+  chatState.posted.add(key);
+  fn();
+}
+function addUserBubble(text) {
+  addMsg("user", d => { d.textContent = text; });
+}
+function addAssistantMsg(html) {
+  addMsg("assistant", d => { d.innerHTML = html; });
+}
+function addSystemNote(text) {
+  addMsg("system", d => { d.textContent = text; });
+}
+function postVerdictCard(kind, title, sub) {
+  if (chatState.verdict) return;
+  chatState.verdict = true;
+  addMsg("verdict-card " + kind, d => {
+    const t = document.createElement("div");
+    t.className = "mtitle"; t.textContent = title; d.appendChild(t);
+    if (sub) { const s = document.createElement("div"); s.className = "msub"; s.textContent = sub; d.appendChild(s); }
+  });
+}
+function gateLabel(gateName) {
+  // Classification from the gate's own identity, never from queue order.
+  return gateName === "gate2_irreversible"
+    ? "Gate 2 (irreversible action)" : "Gate 1 (first launch)";
+}
+function postGateAsk(g) {
+  chatOnce("gate-ask:" + g.gate, () =>
+    addSystemNote("Approval needed: " + gateLabel(g.gate) +
+      " — decide in the card above the composer. The run is paused until you decide."));
+}
+function postGateDecision(gateName, approve) {
+  chatOnce("gate-decision:" + gateName + ":" + (approve ? "approved" : "rejected"), () =>
+    addAssistantMsg(approve
+      ? "<strong>You approved " + esc(gateLabel(gateName)) + ".</strong> The agent continues."
+      : "<strong>You rejected " + esc(gateLabel(gateName)) + ".</strong> " +
+        (gateName === "gate2_irreversible"
+          ? "Nothing was deleted; the agent must find another way or stop safely."
+          : "The run stops safely — nothing was launched.")));
+}
+function chatDiagnosis(n, diag) {
+  if (!diag) return;
+  const code = diag.root_cause_code || diag.fault_label || "unknown";
+  chatOnce("diag:" + (n || "?") + ":" + code, () => {
+    let h = "<strong>Diagnosis — attempt " + esc(n || "?") + "</strong>" +
+      '<div class="frow">Fault: ' + esc(diag.fault_family || diag.fault_label || "—") +
+      ' &middot; Root cause: <span class="mono">' + esc(code) + "</span></div>";
+    if (diag.evidence && diag.evidence.length)
+      h += '<div class="frow muted">Evidence: ' + esc(diag.evidence.join("; ")) + "</div>";
+    const fix = diag.proposed_fix_code || diag.fix_code;
+    if (fix) h += '<div class="frow">Fix to try next: <span class="mono">' + esc(fix) + "</span></div>";
+    else if (typeof diag.proposed_fix === "string")
+      h += '<div class="frow">Fix to try next: ' + esc(diag.proposed_fix) + "</div>";
+    addAssistantMsg(h);
+  });
+}
+function deriveChat(ev) {
+  const p = ev.payload || {};
+  switch (ev.type) {
+    case "run_started":
+      chatOnce("started", () => {
+        if (p.session_context_used)
+          addSystemNote("Using the summary of the previous run in this session.");
+        addAssistantMsg("Run started — the agent is planning, coding and " +
+          "preflight-checking your request. Nothing launches before the approval gate.");
+      });
+      break;
+    case "attempt_started":
+      chatOnce("attempt-start:" + p.attempt, () =>
+        addAssistantMsg("<strong>Attempt " + esc(p.attempt) + "</strong> started — training is running on local CPU."));
+      break;
+    case "attempt_finished":
+      chatOnce("attempt-fin:" + p.attempt + ":" + (p.status || ""), () =>
+        addAssistantMsg("Attempt " + esc(p.attempt) + " finished: <strong>" +
+          esc(p.status || "unknown") + "</strong>."));
+      break;
+    case "attempt_failed": {
+      if (p.diagnosis) break; // the diagnosis message below covers it
+      const cur = currentAttempt(liveCtx);
+      const n = cur ? cur.n : "?";
+      chatOnce("attempt-failed:" + n, () =>
+        addAssistantMsg("Attempt " + esc(n) + " <strong>failed</strong>. The critic is reading the logs…"));
+      break;
+    }
+    case "diagnosis_ready":
+      chatDiagnosis(p.attempt, p.diagnosis || p);
+      break;
+    case "verification_done": {
+      const acc = p.validation_accuracy !== undefined ? p.validation_accuracy : p.accuracy;
+      const sig = "verify:" + (p.passed === undefined ? "?" : p.passed) + ":" + (acc === undefined ? "" : acc);
+      chatOnce(sig, () => addAssistantMsg(p.passed
+        ? "Verification <strong>passed</strong>" + (acc !== undefined && acc !== null ? " — validation accuracy " + esc(num(acc, 4)) + "." : ".")
+        : "Verification <strong>did not pass</strong> — success is not claimed."));
+      break;
+    }
+    case "approval_required":
+      if (p.gate) chatOnce("gate-ask:" + p.gate, () =>
+        addSystemNote("Approval needed: " + gateLabel(p.gate) +
+          " — decide in the card above the composer. The run is paused until you decide."));
+      break;
+    case "approval_decided": {
+      if (!p.gate) break;
+      const ap = (p.approve !== undefined) ? !!p.approve
+        : (p.decision ? p.decision === "approved" : null);
+      if (ap !== null) postGateDecision(p.gate, ap);
+      break;
+    }
+    case "run_error":
+      chatOnce("run-error", () =>
+        addAssistantMsg("The run hit an error: " + esc(p.error || "unknown error")));
+      break;
+  }
+}
+
+/* ================= approval gates (inline card, docked above composer) ================= */
 const gateQueue = [];
 let gateCurrent = null; // {runId, gate, action, irreversible}
 function enqueueGate(runId, gate, action, irreversible) {
   // Only events that carry a non-empty `gate` name are real, actionable
   // approval gates. Graph-shaped approval_required events have no `gate`
   // field: they are informational echoes of the same decision the webapp
-  // gate event already represents, so they must never open a modal.
+  // gate event already represents, so they must never open the gate card.
   if (!gate) return;
   if (gateCurrent && gateCurrent.runId === runId && gateCurrent.gate === gate) return;
   if (gateQueue.some(g => g.runId === runId && g.gate === gate)) return;
@@ -544,19 +797,19 @@ function removeGate(runId, gateName) {
 }
 function clearGatesForRun(runId) {
   // A run in a terminal state can never be waiting on a gate: drop any
-  // queued gates for it and hide the overlay if it was showing one.
+  // queued gates for it and hide the gate card if it was showing one.
   for (let i = gateQueue.length - 1; i >= 0; i--) {
     if (gateQueue[i].runId === runId) gateQueue.splice(i, 1);
   }
   if (gateCurrent && gateCurrent.runId === runId) {
     gateCurrent = null;
-    showNextGate(); // hides the overlay when nothing actionable remains
+    showNextGate(); // hides the gate card when nothing actionable remains
   }
 }
 function showNextGate() {
   gateCurrent = gateQueue.shift() || null;
-  const overlay = $("gate-overlay"), modal = $("gate-modal");
-  if (!gateCurrent) { overlay.classList.remove("show"); $("view-console").classList.remove("paused"); return; }
+  const dock = $("gate-dock"), modal = $("gate-modal");
+  if (!gateCurrent) { dock.classList.remove("show"); $("view-console").classList.remove("paused"); return; }
   // Classify from the event's own data (its gate name and irreversible
   // flag), never from queue position or arrival order.
   const isG2 = gateCurrent.gate === "gate2_irreversible" || gateCurrent.irreversible === true;
@@ -588,9 +841,11 @@ function showNextGate() {
   $("gate-note").textContent = isG2
     ? "Rejecting is safe: the agent must find another way or stop. Nothing is deleted unless you approve."
     : "Nothing launches until you decide. Every decision is written to the run's audit log.";
-  overlay.classList.add("show");
+  dock.classList.add("show");
   $("view-console").classList.add("paused");
   setRunChip("awaiting", "awaiting approval — " + (isG2 ? "Gate 2" : "Gate 1"));
+  postGateAsk(gateCurrent);
+  scrollChat();
 }
 $("gate-confirm").addEventListener("change", e => { $("gate-approve").disabled = !e.target.checked; });
 async function decideGate(approve) {
@@ -604,6 +859,7 @@ async function decideGate(approve) {
     });
   } catch (e) { /* a 409 just means it was already decided */ }
   $("gate-approve").disabled = false; $("gate-reject").disabled = false;
+  postGateDecision(g.gate, approve); // the SSE approval_decided echoes this; dedupe keeps one copy
   gateCurrent = null;
   showNextGate();
   if (!gateCurrent) setRunChip("running", "running");
@@ -682,7 +938,7 @@ async function finalizeLiveRun(runId) {
     const v = data.verification || res.verification || null;
     renderVerification(v);
     // Reconcile attempt cards with the authoritative diagnosis records.
-    (res.diagnosis_records || []).forEach((d, i) => attachDiagnosis(liveCtx, i + 1, d));
+    (res.diagnosis_records || []).forEach((d, i) => { attachDiagnosis(liveCtx, i + 1, d); chatDiagnosis(i + 1, d); });
     if (res.attempts) {
       const last = ensureAttempt(liveCtx, res.attempts);
       last.status = res.success ? "succeeded" : (last.status === "running" ? "failed" : last.status);
@@ -693,17 +949,24 @@ async function finalizeLiveRun(runId) {
     const acc = v ? v.validation_accuracy : null;
     if (data.status === "error" || data.error) {
       showVerdict("bad", "✗ RUN ERROR", data.error || "The run failed with an error.");
+      postVerdictCard("bad", "✗ RUN ERROR", data.error || "The run failed with an error.");
       setRunChip("error", "error");
     } else if (res.success && v && v.passed) {
       showVerdict("ok", "✓ VERIFIED SUCCESS — validation accuracy " + num(acc, 4) +
+        " · " + (res.attempts || "?") + " attempt(s)", res.final_message || "");
+      postVerdictCard("ok", "✓ VERIFIED SUCCESS — validation accuracy " + num(acc, 4) +
         " · " + (res.attempts || "?") + " attempt(s)", res.final_message || "");
       setRunChip("finished", "finished — verified success");
     } else if (res.success) {
       showVerdict("warn", "⚠ UNVERIFIED — the agent reported success but verification did not pass",
         res.final_message || "At least one verification check failed, so success is not claimed.");
+      postVerdictCard("warn", "⚠ UNVERIFIED — the agent reported success but verification did not pass",
+        res.final_message || "At least one verification check failed, so success is not claimed.");
       setRunChip("finished", "finished — unverified");
     } else {
       showVerdict("bad", "✗ RUN ENDED WITHOUT SUCCESS",
+        res.final_message || "The agent stopped without a verified checkpoint.");
+      postVerdictCard("bad", "✗ RUN ENDED WITHOUT SUCCESS",
         res.final_message || "The agent stopped without a verified checkpoint.");
       setRunChip("finished", "finished — no success");
     }
@@ -717,6 +980,25 @@ async function finalizeLiveRun(runId) {
 function handleEvent(ctx, ev, scope) {
   const p = ev.payload || {};
   logEvent(scope, ev);
+  if (ctx === liveCtx) deriveChat(ev);
+  // Live detail lines for the vertical process diagram (best-effort; the
+  // horizontal replay nodes have no detail element, so this is a no-op there).
+  if (ev.type === "attempt_started") setNodeDetail(ctx.pipe, "executor", "attempt " + p.attempt + " running");
+  if (ev.type === "attempt_finished") setNodeDetail(ctx.pipe, "executor", "attempt " + p.attempt + ": " + (p.status || "finished"));
+  if (ev.type === "attempt_failed") setNodeDetail(ctx.pipe, "executor", "attempt failed — sending logs to the critic");
+  if (ev.type === "diagnosis_ready") {
+    const d = p.diagnosis || p;
+    if (d.root_cause_code) setNodeDetail(ctx.pipe, "critic", "root cause: " + d.root_cause_code);
+    const fx = d.proposed_fix_code || d.fix_code;
+    if (fx) setNodeDetail(ctx.pipe, "repair_router", "fix: " + fx);
+  }
+  if (ev.type === "plan_ready" && p.spec) {
+    const h = p.spec.spec_hash || p.spec.hash;
+    if (h) setNodeDetail(ctx.pipe, "planner", "spec hash " + h);
+  }
+  if (ev.type === "approval_required" && p.gate) setNodeDetail(ctx.pipe, "approval_gate", "waiting for your decision");
+  if (ev.type === "verification_done" && p.passed !== undefined)
+    setNodeDetail(ctx.pipe, "verifier", p.passed ? "passed" : "did not pass");
   switch (ev.type) {
     case "run_started":
       if (scope === "live") {
@@ -785,7 +1067,7 @@ function handleEvent(ctx, ev, scope) {
       if (scope === "live") finalizeLiveRun(currentRunId);
       break;
     case "run_error":
-      if (scope === "live") { clearGatesForRun(currentRunId); showVerdict("bad", "✗ RUN ERROR", p.error || ""); setRunChip("error", "error"); }
+      if (scope === "live") { clearGatesForRun(currentRunId); showVerdict("bad", "✗ RUN ERROR", p.error || ""); postVerdictCard("bad", "✗ RUN ERROR", p.error || ""); setRunChip("error", "error"); }
       break;
   }
 }
@@ -817,18 +1099,20 @@ function startStatusPoll(runId) {
 }
 function resetConsoleForRun() {
   resetCtx(liveCtx);
+  resetChat();
   hideVerdict();
   renderVerification(null);
   $("plan-summary").classList.remove("show");
   $("event-log").textContent = "";
   gateQueue.length = 0; gateCurrent = null;
-  $("gate-overlay").classList.remove("show");
+  $("gate-dock").classList.remove("show");
   $("view-console").classList.remove("paused");
 }
 $("btn-run").addEventListener("click", async () => {
   const sessionId = $("session-id").value || "default";
+  const requestText = $("request-text").value;
   const body = {
-    request: $("request-text").value,
+    request: requestText,
     session_id: sessionId,
     fields: {
       model_name: $("f-model").value,
@@ -846,12 +1130,19 @@ $("btn-run").addEventListener("click", async () => {
     const data = await r.json();
     currentRunId = data.run_id;
     resetConsoleForRun();
+    addUserBubble(requestText);
     setRunChip("queued", "queued — " + currentRunId);
     $("run-status").textContent = "Run " + currentRunId + " · " + (data.status || "queued") +
       " · session " + sessionId;
     attachStream(currentRunId, "live");
     startStatusPoll(currentRunId);
   } finally { $("btn-run").disabled = false; }
+});
+$("request-text").addEventListener("keydown", e => {
+  if (e.key === "Enter" && !e.shiftKey) {
+    e.preventDefault();
+    if (!$("btn-run").disabled) $("btn-run").click();
+  }
 });
 $("preset-canonical").addEventListener("click", () => {
   $("request-text").value = "Fine-tune DistilBERT on SST-2 with 2 CPU workers";
@@ -883,11 +1174,26 @@ async function loadRunsTable() {
     });
   } catch (e) {}
 }
+async function fetchRequestText(runId) {
+  try {
+    const r = await fetch("/api/runs");
+    const data = await r.json();
+    const run = (data.runs || []).find(x => x.run_id === runId);
+    if (run && run.request_text) return run.request_text;
+  } catch (e) {}
+  try {
+    const r = await fetch("/api/runs/" + runId);
+    const data = await r.json();
+    return data.request_text || (data.result && data.result.request_text) || "";
+  } catch (e) { return ""; }
+}
 async function viewRun(runId) {
   currentRunId = runId;
   resetConsoleForRun();
   $("run-status").textContent = "Viewing run " + runId;
   setRunChip("running", "loading run…");
+  const text = await fetchRequestText(runId);
+  if (text) addUserBubble(text);
   attachStream(runId, "review");
   startStatusPoll(runId);
 }

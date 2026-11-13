@@ -69,12 +69,19 @@ def main() -> int:
                              page.locator("text=stub").first.is_visible()))
         page.screenshot(path=str(shots / "01-console-initial.png"))
 
-        # 2. Canonical request -> Gate 1 approval modal.
+        # 2. Canonical request -> Gate 1 approval card in the chat pane.
         page.click("#preset-canonical")
         results.append(check("preset fills the request box",
                              page.input_value("#request-text") == CANONICAL))
         page.click("#btn-run")
+        page.wait_for_function(
+            "document.querySelector('#chat-messages').textContent.includes('Fine-tune DistilBERT')",
+            timeout=15000)
+        results.append(check("chat shows the user bubble",
+                             CANONICAL in page.inner_text("#chat-messages")))
         page.wait_for_selector("#gate-modal", state="visible", timeout=30000)
+        results.append(check("gate card is docked above the composer",
+                             page.locator("#gate-dock #gate-modal").is_visible()))
         gate_title = page.inner_text("#gate-title")
         results.append(check("Gate 1 modal appears", "launch" in gate_title.lower(),
                              gate_title.strip()))
@@ -91,6 +98,8 @@ def main() -> int:
                              "VERIFIED SUCCESS" in verdict, verdict.strip()[:90]))
         acc = page.inner_text("#vb-accuracy")
         results.append(check("accuracy badge shows 0.8771", "0.8771" in acc, acc.strip()))
+        results.append(check("chat contains the verdict card",
+                             "VERIFIED SUCCESS" in page.inner_text("#chat-messages")))
         done_nodes = page.locator("#plan-nodes .node.done, #plan-nodes .done").count()
         results.append(check("pipeline nodes completed", done_nodes >= 10,
                              f"{done_nodes} nodes done"))
