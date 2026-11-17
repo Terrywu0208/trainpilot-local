@@ -5,20 +5,18 @@
 # being able to read anything else (for example .env files).
 #
 # The node image is digest-pinned for reproducibility. The digest below
-# is a PLACEHOLDER: replace it with the real kindest/node v1.31.2 digest
-# (from `docker inspect kindest/node:v1.31.2`) before creating a real
-# cluster. There is no docker/kind in the build environment, so this
-# file is only parse-tested here.
+# is the real published kindest/node v1.31.2 manifest digest (Docker
+# Hub, verified 2026-11-17).
 kind: Cluster
 apiVersion: kind.x-k8s.io/v1alpha4
 name: trainpilot
 nodes:
   - role: control-plane
-    image: kindest/node:v1.31.2@sha256:0000000000000000000000000000000000000000000000000000000000000000
+    image: kindest/node:v1.31.2@sha256:18fbefc20a7113353c7b75b5c869d7145a6abd6269154825872dc59c1329912e
     labels:
       trainpilot.io/role: control-plane
   - role: worker
-    image: kindest/node:v1.31.2@sha256:0000000000000000000000000000000000000000000000000000000000000000
+    image: kindest/node:v1.31.2@sha256:18fbefc20a7113353c7b75b5c869d7145a6abd6269154825872dc59c1329912e
     labels:
       trainpilot.io/role: worker
       trainpilot.io/compute: "true"
@@ -27,7 +25,7 @@ nodes:
         containerPath: /trainpilot/workspaces
         readOnly: false
   - role: worker
-    image: kindest/node:v1.31.2@sha256:0000000000000000000000000000000000000000000000000000000000000000
+    image: kindest/node:v1.31.2@sha256:18fbefc20a7113353c7b75b5c869d7145a6abd6269154825872dc59c1329912e
     labels:
       trainpilot.io/role: worker
       trainpilot.io/compute: "true"

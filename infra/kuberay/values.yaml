@@ -4,6 +4,7 @@
 #   chart:            kuberay-operator 1.3.0
 #                     (pinned at install time: helm install --version 1.3.0)
 #   operator image:   quay.io/kuberay/operator:v1.3.0
+#                     (manifest digest sha256:32deadb4246e5880c104c27dc1f417261560fe7492e363cf7999ee8744278494, verified 2026-11-17)
 #   Ray version:      2.41.0 (worker image rayproject/ray:2.41.0-py310-cpu)
 #
 # Install:

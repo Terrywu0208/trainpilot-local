@@ -1,0 +1,75 @@
+# Smoke RayJob: proves the KubeRay path end-to-end on a fresh cluster.
+# Submitted by scripts/deploy_vm.sh after the operator is Ready.
+# Mirrors the manifest shape the agent itself renders
+# (training/local_runner.py), scaled to the demo: 2 CPU workers,
+# smoke backend, checkpoint written to the Kind workspace mount so
+# it lands on the host under workspaces/smoke-001/.
+apiVersion: ray.io/v1
+kind: RayJob
+metadata:
+  name: trainpilot-smoke
+  namespace: trainpilot-jobs
+  labels:
+    app: trainpilot-local
+    trainpilot/spec-hash: "smoke-001"
+spec:
+  entrypoint: >-
+    mkdir -p /trainpilot/workspaces/smoke-001 &&
+    python /app/training/train.py
+    --config /app/training/smoke_config.yaml --backend smoke
+  shutdownAfterJobFinishes: true
+  ttlSecondsAfterFinished: 3600
+  rayClusterSpec:
+    rayVersion: "2.41.0"
+    headGroupSpec:
+      rayStartParams:
+        dashboard-host: "0.0.0.0"
+      template:
+        spec:
+          containers:
+            - name: ray-head
+              image: trainpilot/training:2.41.0-cpu
+              imagePullPolicy: IfNotPresent
+              resources:
+                requests:
+                  cpu: "500m"
+                  memory: "1Gi"
+                limits:
+                  cpu: "1"
+                  memory: "1536Mi"
+              volumeMounts:
+                - name: workspaces
+                  mountPath: /trainpilot/workspaces
+          volumes:
+            - name: workspaces
+              hostPath:
+                path: /trainpilot/workspaces
+                type: DirectoryOrCreate
+    workerGroupSpecs:
+      - groupName: train-workers
+        replicas: 2
+        minReplicas: 2
+        maxReplicas: 2
+        rayStartParams:
+          num-cpus: "1"
+        template:
+          spec:
+            containers:
+              - name: ray-worker
+                image: trainpilot/training:2.41.0-cpu
+                imagePullPolicy: IfNotPresent
+                resources:
+                  requests:
+                    cpu: "500m"
+                    memory: "1Gi"
+                  limits:
+                    cpu: "1"
+                    memory: "1536Mi"
+                volumeMounts:
+                  - name: workspaces
+                    mountPath: /trainpilot/workspaces
+            volumes:
+              - name: workspaces
+                hostPath:
+                  path: /trainpilot/workspaces
+                  type: DirectoryOrCreate

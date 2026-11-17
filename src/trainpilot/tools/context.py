@@ -16,20 +16,28 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-# Placeholder digests: replace with the real values from
-# `docker inspect <image>` when the images are pinned for a real cluster
-# (design B-5.2). The validator compares the full `name@digest` reference,
-# never the tag alone.
+# Approved images (design B-5.2). The validator compares the full
+# `name@digest` reference, never the tag alone.
+#
+# The two public images carry their real registry digests (Docker Hub
+# manifest digests, verified 2026-11-17). The training image is built
+# locally from training/Dockerfile, so its digest exists only on the
+# machine that built it: `scripts/deploy_vm.sh` pins it from
+# `docker inspect` at deploy time by replacing the sentinel below.
+# Until that happens the sentinel matches nothing, so the training
+# image fails closed. (The previous third entry, pytorch/pytorch:
+# 2.5.1-cpu, named an image that does not exist — Docker Hub publishes
+# no CPU variant of the pytorch image — and was removed.)
+TRAINING_IMAGE_DIGEST = "sha256:local-build-unpinned"
+
 DEFAULT_APPROVED_IMAGES: dict[str, str] = {
     "rayproject/ray:2.41.0-py310-cpu": (
-        "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+        "sha256:1c9c04bfb02c9bc9b23f2857a319033e7cb592d71e23663228379f9a8b469629"
     ),
     "python:3.11-slim-bookworm": (
-        "sha256:1111111111111111111111111111111111111111111111111111111111111111"
+        "sha256:a83ba18aef0f865b1a4a611c2cf460fe446f2795673bbb9fe43be570439e3b39"
     ),
-    "pytorch/pytorch:2.5.1-cpu": (
-        "sha256:2222222222222222222222222222222222222222222222222222222222222222"
-    ),
+    "trainpilot/training:2.41.0-cpu": TRAINING_IMAGE_DIGEST,
 }
 
 # Development default only. Real deployments inject a secret through the

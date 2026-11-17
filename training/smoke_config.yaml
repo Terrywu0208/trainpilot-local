@@ -1,0 +1,22 @@
+# Canonical smoke configuration for the KubeRay smoke RayJob
+# (infra/k8s/smoke-rayjob.yaml). Mirrors the TrainingSpec the local
+# executor renders for the canonical fine-tune, but runs the
+# dependency-free smoke backend so it works in the training image
+# with no model download. output_dir sits on the Kind workspace
+# mount so the checkpoint lands on the host under workspaces/.
+backend: gloo
+dataset: sst2
+epochs: 1
+gradient_accumulation_steps: 2
+learning_rate: 2.0e-05
+max_length: 64
+max_steps: 40
+model_name: distilbert-base-uncased
+model_revision: main
+num_workers: 2
+output_dir: /trainpilot/workspaces/smoke-001
+per_worker_batch_size: 8
+resources_per_worker_memory: 2Gi
+seed: 42
+train_subsample: 1024
+val_subsample: 256
