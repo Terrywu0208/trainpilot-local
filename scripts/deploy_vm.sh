@@ -32,16 +32,21 @@ TRAINING_IMAGE="trainpilot/training:2.41.0-cpu"
 JOBS_NS="trainpilot-jobs"
 SMALL=0
 SKIP_SMOKE=0
+SKIP_PREFLIGHT=0
 TEARDOWN=0
 
 for arg in "$@"; do
   case "$arg" in
     --small) SMALL=1 ;;
     --skip-smoke) SKIP_SMOKE=1 ;;
+    --skip-preflight) SKIP_PREFLIGHT=1 ;;
     --teardown) TEARDOWN=1 ;;
     *) echo "unknown argument: $arg" >&2; exit 2 ;;
   esac
 done
+
+SUDO="sudo"
+[ "$(id -u)" = "0" ] && SUDO=""
 
 step() { printf '\n=== %s ===\n' "$*"; }
 ok() { printf 'OK: %s\n' "$*"; }
@@ -49,7 +54,7 @@ ok() { printf 'OK: %s\n' "$*"; }
 # docker may need sudo until the user re-logs into the docker group.
 DOCKER="docker"
 if ! docker ps >/dev/null 2>&1; then
-  if sudo docker ps >/dev/null 2>&1; then DOCKER="sudo docker"; fi
+  if $SUDO docker ps >/dev/null 2>&1; then DOCKER="$SUDO docker"; fi
 fi
 
 if [ "$TEARDOWN" = "1" ]; then
@@ -63,6 +68,10 @@ if [ "$TEARDOWN" = "1" ]; then
 fi
 
 step "Preflight"
+if [ "$SKIP_PREFLIGHT" != "1" ] && [ -x scripts/preflight.sh ]; then
+  PRE_ARGS=""; [ "$SMALL" = "1" ] && PRE_ARGS="--small"
+  scripts/preflight.sh $PRE_ARGS || { echo "preflight failed; fix the FAIL lines above, or re-run with --skip-preflight" >&2; exit 1; }
+fi
 [ -r /etc/os-release ] && . /etc/os-release
 echo "OS: ${PRETTY_NAME:-unknown} | arch: $(uname -m)"
 echo "RAM: $(free -h | awk '/^Mem:/{print $2}') total | disk free: $(df -h . | awk 'NR==2{print $4}')"
@@ -71,26 +80,26 @@ ok "repo at $REPO_ROOT"
 
 step "Docker"
 if ! command -v docker >/dev/null 2>&1; then
-  curl -fsSL https://get.docker.com | sudo sh
-  sudo usermod -aG docker "$USER" || true
+  curl -fsSL https://get.docker.com | $SUDO sh
+  $SUDO usermod -aG docker "$USER" || true
   DOCKER="sudo docker"
 fi
-$DOCKER ps >/dev/null 2>&1 || { sudo systemctl start docker || true; }
+$DOCKER ps >/dev/null 2>&1 || { $SUDO systemctl start docker || true; }
 $DOCKER ps >/dev/null
 ok "docker $($DOCKER --version)"
 
 step "kind / kubectl / helm"
 if ! command -v kind >/dev/null 2>&1; then
   curl -fsSL -o /tmp/kind "https://kind.sigs.k8s.io/dl/${KIND_VERSION}/kind-linux-amd64"
-  sudo install -m 0755 /tmp/kind /usr/local/bin/kind
+  $SUDO install -m 0755 /tmp/kind /usr/local/bin/kind
 fi
 if ! command -v kubectl >/dev/null 2>&1; then
   curl -fsSL -o /tmp/kubectl "https://dl.k8s.io/release/${KUBECTL_VERSION}/bin/linux/amd64/kubectl"
-  sudo install -m 0755 /tmp/kubectl /usr/local/bin/kubectl
+  $SUDO install -m 0755 /tmp/kubectl /usr/local/bin/kubectl
 fi
 if ! command -v helm >/dev/null 2>&1; then
   curl -fsSL "https://get.helm.sh/helm-${HELM_VERSION}-linux-amd64.tar.gz" | tar -xz -C /tmp
-  sudo install -m 0755 /tmp/linux-amd64/helm /usr/local/bin/helm
+  $SUDO install -m 0755 /tmp/linux-amd64/helm /usr/local/bin/helm
 fi
 ok "kind $(kind --version) | kubectl $(kubectl version --client -o json 2>/dev/null | grep -o '"gitVersion": *"[^"]*"' | head -1 || echo present) | helm $(helm version --short)"
 
@@ -126,7 +135,8 @@ step "Namespaces / limits / RBAC"
 kubectl apply -f infra/k8s/namespaces.yaml
 kubectl apply -f infra/k8s/limits.yaml
 kubectl apply -f infra/k8s/rbac.yaml
-ok "applied namespaces.yaml, limits.yaml, rbac.yaml"
+kubectl apply -f infra/k8s/workspaces-pvc.yaml
+ok "applied namespaces.yaml, limits.yaml, rbac.yaml, workspaces-pvc.yaml"
 
 step "Training image"
 $DOCKER build -f training/Dockerfile -t "$TRAINING_IMAGE" .
@@ -174,18 +184,30 @@ for i in $(seq 1 90); do
 done
 echo "--- pods in $JOBS_NS ---"
 kubectl get pods -n "$JOBS_NS"
-if [ "$STATUS" = "SUCCEEDED" ] && [ -f workspaces/smoke-001/checkpoint-final/metrics.json ]; then
+HEAD_POD="$(kubectl get pods -n "$JOBS_NS" -l ray.io/node-type=head   -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || echo '')"
+RESULT_LINE=""
+if [ -n "$HEAD_POD" ]; then
+  RESULT_LINE="$(kubectl logs -n "$JOBS_NS" "$HEAD_POD" --tail=200 2>/dev/null     | grep 'TRAINPILOT_RESULT' | tail -1 || echo '')"
+  mkdir -p workspaces/smoke-001/checkpoint-final
+  kubectl cp -n "$JOBS_NS"     "$HEAD_POD:/trainpilot/workspaces/smoke-001/checkpoint-final/metrics.json"     workspaces/smoke-001/checkpoint-final/metrics.json 2>/dev/null || true
+fi
+if [ "$STATUS" = "SUCCEEDED" ] && [ -n "$RESULT_LINE" ]; then
   step "DEPLOYMENT VERIFIED"
   echo "RayJob trainpilot-smoke: SUCCEEDED"
-  echo "Checkpoint on host: workspaces/smoke-001/checkpoint-final/"
-  cat workspaces/smoke-001/checkpoint-final/metrics.json || true
+  echo "Result from the head pod: $RESULT_LINE"
+  if [ -f workspaces/smoke-001/checkpoint-final/metrics.json ]; then
+    echo "Checkpoint metrics copied to workspaces/smoke-001/checkpoint-final/metrics.json:"
+    cat workspaces/smoke-001/checkpoint-final/metrics.json
+  fi
   echo
+  echo "The finished cluster stays up for inspection (kubectl get pods -n $JOBS_NS)."
   echo "Next: point the MCP action server at this cluster (OPERATIONS.md Flow F),"
   echo "or tear down with: scripts/deploy_vm.sh --teardown"
 else
-  echo "Smoke job did not verify (status: ${STATUS:-unknown}; checkpoint metrics present: $(test -f workspaces/smoke-001/checkpoint-final/metrics.json && echo yes || echo no))." >&2
+  echo "Smoke job did not verify (status: ${STATUS:-unknown}; result line found: $(test -n "$RESULT_LINE" && echo yes || echo no))." >&2
   echo "Debug with:" >&2
   echo "  kubectl describe rayjob trainpilot-smoke -n $JOBS_NS" >&2
-  echo "  kubectl logs -n $JOBS_NS -l ray.io/job-name=trainpilot-smoke --tail=100" >&2
+  echo "  kubectl get pods -n $JOBS_NS" >&2
+  echo "  kubectl logs -n $JOBS_NS -l ray.io/node-type=head --tail=100" >&2
   exit 1
 fi

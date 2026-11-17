@@ -1,9 +1,18 @@
 # Smoke RayJob: proves the KubeRay path end-to-end on a fresh cluster.
 # Submitted by scripts/deploy_vm.sh after the operator is Ready.
-# Mirrors the manifest shape the agent itself renders
-# (training/local_runner.py), scaled to the demo: 2 CPU workers,
-# smoke backend, checkpoint written to the Kind workspace mount so
-# it lands on the host under workspaces/smoke-001/.
+#
+# The manifest is Pod Security Standards "restricted"-compliant,
+# because trainpilot-jobs enforces that profile: no hostPath (the
+# workspace is the trainpilot-workspaces PVC, mounted on the head
+# only), runAsNonRoot with the
+# Ray image's uid 1000, RuntimeDefault seccomp, drop ALL capabilities,
+# allowPrivilegeEscalation off. The submitter pod template carries
+# the same context — the operator-generated default would be
+# rejected by the namespace policy.
+#
+# shutdownAfterJobFinishes is false so the finished cluster stays up
+# for inspection (logs, kubectl cp of the checkpoint); the deploy
+# script's --teardown, or deleting this RayJob, removes it.
 apiVersion: ray.io/v1
 kind: RayJob
 metadata:
@@ -17,8 +26,33 @@ spec:
     mkdir -p /trainpilot/workspaces/smoke-001 &&
     python /app/training/train.py
     --config /app/training/smoke_config.yaml --backend smoke
-  shutdownAfterJobFinishes: true
-  ttlSecondsAfterFinished: 3600
+  shutdownAfterJobFinishes: false
+  ttlSecondsAfterFinished: 86400
+  submitterPodTemplate:
+    spec:
+      restartPolicy: Never
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: ray-job-submitter
+          image: trainpilot/training:2.41.0-cpu
+          imagePullPolicy: IfNotPresent
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+          resources:
+            requests:
+              cpu: "250m"
+              memory: "512Mi"
+            limits:
+              cpu: "500m"
+              memory: "1Gi"
   rayClusterSpec:
     rayVersion: "2.41.0"
     headGroupSpec:
@@ -26,10 +60,22 @@ spec:
         dashboard-host: "0.0.0.0"
       template:
         spec:
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1000
+            runAsGroup: 1000
+            fsGroup: 1000
+            seccompProfile:
+              type: RuntimeDefault
           containers:
             - name: ray-head
               image: trainpilot/training:2.41.0-cpu
               imagePullPolicy: IfNotPresent
+              securityContext:
+                allowPrivilegeEscalation: false
+                capabilities:
+                  drop:
+                    - ALL
               resources:
                 requests:
                   cpu: "500m"
@@ -42,9 +88,8 @@ spec:
                   mountPath: /trainpilot/workspaces
           volumes:
             - name: workspaces
-              hostPath:
-                path: /trainpilot/workspaces
-                type: DirectoryOrCreate
+              persistentVolumeClaim:
+                claimName: trainpilot-workspaces
     workerGroupSpecs:
       - groupName: train-workers
         replicas: 2
@@ -54,10 +99,22 @@ spec:
           num-cpus: "1"
         template:
           spec:
+            securityContext:
+              runAsNonRoot: true
+              runAsUser: 1000
+              runAsGroup: 1000
+              fsGroup: 1000
+              seccompProfile:
+                type: RuntimeDefault
             containers:
               - name: ray-worker
                 image: trainpilot/training:2.41.0-cpu
                 imagePullPolicy: IfNotPresent
+                securityContext:
+                  allowPrivilegeEscalation: false
+                  capabilities:
+                    drop:
+                      - ALL
                 resources:
                   requests:
                     cpu: "500m"
@@ -65,11 +122,6 @@ spec:
                   limits:
                     cpu: "1"
                     memory: "1536Mi"
-                volumeMounts:
-                  - name: workspaces
-                    mountPath: /trainpilot/workspaces
-            volumes:
-              - name: workspaces
-                hostPath:
-                  path: /trainpilot/workspaces
-                  type: DirectoryOrCreate
+                # No workspace mount on workers: the driver on the
+                # head writes the checkpoint, and a ReadWriteOnce
+                # volume cannot be mounted by pods on other nodes.

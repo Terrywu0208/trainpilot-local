@@ -36,12 +36,15 @@ spec:
         cpu: "250m"
         memory: "128Mi"
 ---
-# Default-deny egress. Only DNS and outbound 443 are allowed.
-# Known limitation (design B-5.3): the default Kind CNI cannot filter by
-# FQDN, so the host allowlist (huggingface.co, pypi.org, ...) is NOT
-# enforced here. The real control is that models and datasets are baked
-# into the image / workspace at build time and training runs with
-# HF_HUB_OFFLINE=1, so training pods do not need egress at all.
+# Default-deny egress. Allowed: intra-namespace pod-to-pod traffic
+# (Ray head/worker RPC — without it the cluster cannot form on a
+# policy-enforcing CNI), DNS, and outbound 443.
+# Known limitation (design B-5.3): the default Kind CNI (kindnet)
+# does not enforce NetworkPolicy at all, and cannot filter by FQDN,
+# so the host allowlist (huggingface.co, pypi.org, ...) is NOT
+# enforced here. The real control is that models and datasets are
+# baked into the image / workspace at build time and training runs
+# with HF_HUB_OFFLINE=1, so training pods do not need egress at all.
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
@@ -52,6 +55,8 @@ spec:
   policyTypes:
     - Egress
   egress:
+    - to:
+        - podSelector: {}
     - to:
         - namespaceSelector:
             matchLabels:

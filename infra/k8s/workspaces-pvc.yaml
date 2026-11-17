@@ -1,0 +1,21 @@
+# Shared workspace volume for training checkpoints and logs.
+#
+# The jobs namespace enforces Pod Security Standards "restricted",
+# which forbids hostPath volumes — so the workspace the Kind node
+# mount used to provide is a PersistentVolumeClaim instead. It uses
+# the cluster's default StorageClass (Kind ships one backed by the
+# local-path provisioner), so checkpoints survive pod deletion and
+# can be copied out with `kubectl cp` after a run.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: trainpilot-workspaces
+  namespace: trainpilot-jobs
+  labels:
+    app: trainpilot-local
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 2Gi

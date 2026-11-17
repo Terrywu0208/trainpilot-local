@@ -42,9 +42,20 @@ spec:
         dashboard-host: "0.0.0.0"
       template:
         spec:
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1000
+            runAsGroup: 1000
+            seccompProfile:
+              type: RuntimeDefault
           containers:
             - name: ray-head
               image: {{ image | tojson }}
+              securityContext:
+                allowPrivilegeEscalation: false
+                capabilities:
+                  drop:
+                    - ALL
               resources:
                 requests:
                   cpu: "1"
@@ -61,9 +72,20 @@ spec:
           num-cpus: "2"
         template:
           spec:
+            securityContext:
+              runAsNonRoot: true
+              runAsUser: 1000
+              runAsGroup: 1000
+              seccompProfile:
+                type: RuntimeDefault
             containers:
               - name: ray-worker
                 image: {{ image | tojson }}
+                securityContext:
+                  allowPrivilegeEscalation: false
+                  capabilities:
+                    drop:
+                      - ALL
                 env:
                   - name: TRAINPILOT_BACKEND
                     value: {{ spec.backend | tojson }}

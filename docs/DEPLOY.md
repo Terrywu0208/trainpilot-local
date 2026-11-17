@@ -4,7 +4,7 @@ This runbook takes a fresh Ubuntu VM from nothing to a verified
 KubeRay deployment: a Kind cluster running the KubeRay operator, the
 project's namespaces/RBAC/limits, the training image loaded, and a
 smoke RayJob that finishes `SUCCEEDED` and writes a real checkpoint
-back to the host.
+to the workspace volume.
 
 ## Overview map
 
@@ -17,7 +17,7 @@ fresh Ubuntu VM
   └─ 5. Project platform          (infra/k8s/: namespaces, ResourceQuota/LimitRange/NetworkPolicy, RBAC)
   └─ 6. Training image            (training/Dockerfile → trainpilot/training:2.41.0-cpu, kind load)
   └─ 7. Digest pin                (image ID written into src/trainpilot/tools/context.py)
-  └─ 8. Smoke RayJob              (infra/k8s/smoke-rayjob.yaml → SUCCEEDED + checkpoint on host)
+  └─ 8. Smoke RayJob              (infra/k8s/smoke-rayjob.yaml → SUCCEEDED + checkpoint on the workspace PVC)
 ```
 
 Everything the agent later does (submit RayJobs, read status/logs,
@@ -28,7 +28,7 @@ proves.
 
 | | Full profile | `--small` profile |
 |---|---|---|
-| VM | Ubuntu 22.04 or 24.04, x86_64 | same |
+| VM | Ubuntu 20.04, 22.04 or 24.04, x86_64 | same |
 | CPU / RAM | ≥ 4 vCPU / 8 GB | ≥ 2 vCPU / 4 GB |
 | Disk | ≥ 30 GB free | ≥ 25 GB free |
 | Access | sudo, outbound internet for image/binary pulls | same |
@@ -39,13 +39,29 @@ Why these sizes: the full profile runs 3 Kind nodes plus a head and
 laptop-class VM (for example a 2 vCPU / 4 GB cloud instance) can
 still prove the whole path.
 
-## One-command deployment
+## Zero-to-deployed (bare VM, one line)
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/Terrywu0208/trainpilot-local/main/scripts/bootstrap.sh | bash -s -- --small
+```
+
+The bootstrap installs git if needed, clones the repository, and
+hands off to the deploy script. Drop `--small` on a VM with
+≥ 8 GB RAM.
+
+## One-command deployment (repo already cloned)
 
 ```bash
 git clone https://github.com/Terrywu0208/trainpilot-local
 cd trainpilot-local
 scripts/deploy_vm.sh            # or: scripts/deploy_vm.sh --small
 ```
+
+Not sure the VM qualifies? Run `scripts/preflight.sh` (add
+`--small` for the small profile) first: it checks OS, CPU, RAM,
+disk, privileges, and reachability of every registry and download
+the deploy uses, and prints a PASS/FAIL line for each. The deploy
+script runs it automatically and stops if anything fails.
 
 The script is idempotent — re-running it skips whatever already
 exists. It prints one `=== step ===` banner per stage and ends with
@@ -82,9 +98,17 @@ check.
    `helm install kuberay-operator kuberay/kuberay-operator --version 1.3.0 -n kuberay-system --create-namespace -f infra/kuberay/values.yaml --wait`.
    Success: `kubectl get pods -n kuberay-system` shows the operator
    `Running`, and `kubectl get crd rayjobs.ray.io` exists.
-5. **Platform.** `kubectl apply -f infra/k8s/namespaces.yaml -f infra/k8s/limits.yaml -f infra/k8s/rbac.yaml`.
+5. **Platform.** `kubectl apply -f infra/k8s/namespaces.yaml -f infra/k8s/limits.yaml -f infra/k8s/rbac.yaml -f infra/k8s/workspaces-pvc.yaml`.
    Success: `kubectl get ns` lists `trainpilot-jobs`,
-   `trainpilot-system`, `kuberay-system`.
+   `trainpilot-system`, `kuberay-system`, and
+   `kubectl get pvc -n trainpilot-jobs` shows
+   `trainpilot-workspaces` (it binds once the first pod mounts it).
+   Note the jobs namespace enforces Pod Security Standards
+   "restricted": pods must be non-root with a RuntimeDefault seccomp
+   profile and no hostPath volumes. The shipped manifests comply —
+   the workspace is the PVC above, mounted on the Ray head only
+   (the driver writes the checkpoint; a ReadWriteOnce volume cannot
+   be mounted by pods on several nodes).
 6. **Training image.** `docker build -f training/Dockerfile -t trainpilot/training:2.41.0-cpu .`
    then `kind load docker-image trainpilot/training:2.41.0-cpu --name trainpilot`.
    Success: the load command ends with the image ID. For the real
@@ -96,10 +120,14 @@ check.
    `src/trainpilot/tools/context.py` (`TRAINING_IMAGE_DIGEST`).
 8. **Smoke job.** `kubectl apply -f infra/k8s/smoke-rayjob.yaml`,
    then watch `kubectl get rayjob trainpilot-smoke -n trainpilot-jobs -w`.
-   Success: `jobStatus` becomes `SUCCEEDED`, and
-   `workspaces/smoke-001/checkpoint-final/metrics.json` exists on
-   the host with a `TRAINPILOT_RESULT`-consistent accuracy
-   (canonical smoke value 0.8771).
+   Success: `jobStatus` becomes `SUCCEEDED`. The finished cluster
+   stays up for inspection: the checkpoint is on the workspace PVC
+   at `/trainpilot/workspaces/smoke-001/checkpoint-final/` inside
+   the head pod (`kubectl get pods -n trainpilot-jobs -l ray.io/node-type=head`),
+   and the head pod's log carries the `TRAINPILOT_RESULT` line with
+   the canonical smoke accuracy 0.8771. The deploy script copies
+   `metrics.json` out to `workspaces/smoke-001/` on the host with
+   `kubectl cp` and prints both.
 
 ## Using the cluster
 
@@ -126,7 +154,9 @@ also undo the digest pin: `git checkout -- src/trainpilot/tools/context.py`.
 | Operator pod `ImagePullBackOff` | quay.io unreachable from the VM | check outbound access to quay.io; the operator digest is recorded in `infra/kuberay/values.yaml` |
 | RayJob stuck `PENDING`, pods `Pending` | ResourceQuota or node capacity (small VM) | `kubectl describe pod -n trainpilot-jobs`; use `--small`, or raise the VM size |
 | RayJob `FAILED`, log shows `DATASET_NOT_AVAILABLE` | a config asked for a dataset the image does not bundle | the smoke path only bundles `sst2`; this is the trainer refusing honestly, not a cluster fault |
-| Checkpoint missing on host after `SUCCEEDED` | the workspace mount is missing | the Kind config mounts `./workspaces` from the directory `kind create` ran in — deploy from the repo root |
+| Pods rejected with `violates PodSecurity` | a manifest is not "restricted"-compliant (hostPath, root user, missing seccomp) | use the shipped manifests; the workspace is a PVC, never hostPath, and every pod template carries the securityContext in `infra/k8s/smoke-rayjob.yaml` |
+| RayJob `FAILED` with pods stuck `Pending` on a storage error | a ReadWriteOnce volume mounted by pods on several nodes | the workspace PVC is mounted on the head only, by design |
+| Checkpoint not on the host after `SUCCEEDED` | it lives on the PVC inside the cluster, not on the host filesystem | `kubectl cp` it from the head pod (the deploy script does this), or read the `TRAINPILOT_RESULT` line in the head pod's log |
 | Validator refuses the training image | digest pin not applied on this machine | redo step 7; the pin is per-machine by design |
 
 ## Version pins (single source of truth)
