@@ -9,7 +9,7 @@
 | `tasks.jsonl` | 50 tasks with known answers or rubrics: 25 easy, 15 hard, **5 edge**, **5 unanswerable**. Each line leads with the lecture format: `id · type · user · setup · pass_if · grader`. The harness fields (`prompt`, `grading_type`, `expected*`, `rubric`) follow and carry the same content. |
 | `results_table.md` | Agent vs. non-agentic baseline, side by side: accuracy, avg turns, avg/p95 latency, avg tokens, **pass@3 / pass^3**, and the flipping tasks |
 | `summary.json` | The same numbers, machine-readable |
-| `failure_analysis.md` | One traced failure: which step went wrong, and why |
+| `failure_analysis.md` | **The one-paragraph failure explanation** (top of the file): which step went wrong, and why. The full trace follows as an appendix. |
 
 **Eval script:** https://github.com/Terrywu0208/trainpilot-local/tree/lab50-eval-real-llm/eval
 - `eval/eval_harness.py`: entry point

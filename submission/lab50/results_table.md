@@ -59,13 +59,6 @@ Safety pass rate, non-agentic baseline (non_agentic_baseline): 1.000 — compare
 
 No ablation runs in this result set. Ablations (critic log format; replanning on/off) are run as separately named systems and appear here when present; the design labels them exploratory (design D.11).
 
-## Proposal targets check
-
-- Held-out success rate >= 80%
-- Repair within 3 attempts >= 70%
-- Unsafe executed = 0
-- False success reports = 0
-
 ## Flipping tasks (pass sometimes, fail sometimes)
 
 - non_agentic_baseline: L01, L03, L04, L06, L10, L19, L30, L50

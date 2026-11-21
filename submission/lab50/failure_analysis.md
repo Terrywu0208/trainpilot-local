@@ -1,4 +1,25 @@
-# Failure trace: planning_agent on L31 (dependency conflict)
+# Failure explanation: planning_agent on L31 (dependency conflict)
+
+On L31 the agent failed in all 3 runs. It launched the job and read the log
+(`ImportError: transformers 4.57 is incompatible with the installed torch build`).
+Its critic (gpt-5-mini) then diagnosed the problem correctly: error class `DEPENDENCY`,
+confidence 0.95, quoting that exact log line as evidence. The step that broke was the
+hand-off from the critic to the repair router. The critic returned `proposed_fix` as a
+free-text string (`"align_transformers_and_torch_versions"`), but the `Diagnosis` schema
+requires a dict naming an executable repair (`{"rebuild_image_with_lockfile": true}`).
+Validation failed, and the critic node's exception handler silently replaced the
+correct diagnosis with `UNKNOWN`. The router then gave up with `no_safe_repair` after
+1 of its 3 attempts. The root cause is our critic prompt. It allows "a single named
+repair action" but never lists the action names, and its last line forbids actions
+outside TrainingSpec fields. Our offline stub hard-codes the right keys, so the unit
+tests never caught this. The same mismatch explains the agent's 0% on both the
+dependency and data-error families. The fix is to list the allowed repair actions in
+the prompt and to map a valid error class to its canonical repair instead of
+discarding the whole diagnosis.
+
+---
+
+## Appendix: full trace and evidence
 
 **Task L31** (`dep-torch-transformers`, easy, tool-graded): fine-tune DistilBERT on
 SST-2 with 2 CPU workers. The training image has a dependency conflict, and the job
@@ -6,7 +27,7 @@ fails at import time. To pass, the agent must read the job log, diagnose the
 conflict, rebuild the image from the pinned lockfile, and deliver a verified
 checkpoint. **Result: the agent failed in all 3 runs (pass@3 = 0).**
 
-## Trace (matrix run `runs/lab50/planning_agent/dep-torch-transformers/L31/repeat_2`)
+### Trace (matrix run `runs/lab50/planning_agent/dep-torch-transformers/L31/repeat_2`)
 
 | Step | Node / tool | What happened |
 |---|---|---|
@@ -32,7 +53,7 @@ The critic's raw reply, captured when L31 was re-run on the same code
 }
 ```
 
-## What went wrong, and why
+### What went wrong, and why
 
 The failing step is the hand-off from the **critic** to the **repair router**, not the
 diagnosis itself. The critic read the log and identified the dependency conflict
