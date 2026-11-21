@@ -1,12 +1,12 @@
 # Lab: eval harness for the project agent (TrainPilot-Local)
 
-**Team:** Chia-En Wu (NetID: `TODO`) · Andy Lee (NetID: `TODO`)
+**Team:** Chia-En Wu (NetID: chiaen28) · Andy Lee (NetID: andyrf)
 
 ## What is in this folder
 
 | File | Requirement |
 |---|---|
-| `tasks.jsonl` | 50 tasks with known answers or rubrics: 25 easy, 15 hard, **5 edge**, **5 unanswerable** |
+| `tasks.jsonl` | 50 tasks with known answers or rubrics: 25 easy, 15 hard, **5 edge**, **5 unanswerable**. Each line leads with the lecture format: `id · type · user · setup · pass_if · grader`. The harness fields (`prompt`, `grading_type`, `expected*`, `rubric`) follow and carry the same content. |
 | `results_table.md` | Agent vs. non-agentic baseline, side by side: accuracy, avg turns, avg/p95 latency, avg tokens, **pass@3 / pass^3**, and the flipping tasks |
 | `summary.json` | The same numbers, machine-readable |
 | `failure_analysis.md` | One traced failure: which step went wrong, and why |
