@@ -76,6 +76,19 @@ def grade_lab_answer(task: TaskSpec, output, trace: list[dict]) -> dict:
         correct = bool(keywords) and len(hits) == len(keywords)
         grounded = bool(trace) or correct
         complete = correct
+    # A system that acted on the cluster is judged on what it delivered,
+    # not only on what it wrote: if the task expects a succeeded job, a
+    # run that gave up or never verified a checkpoint is not complete,
+    # whatever keywords its report happens to contain. A no-tool system
+    # (the non-agentic baseline) cannot run anything and is graded on its
+    # answer alone, so this only ever makes the agent's bar higher.
+    acted = any(e.get("executed") for e in trace)
+    expects_success = (task.expected_state or {}).get(
+        "final_status") == "succeeded"
+    if (acted and expects_success and task.grading_type != "unanswerable"
+            and task.difficulty != "unanswerable"
+            and not output.claimed_success):
+        complete = False
     components = {
         "correct": bool(correct),
         "grounded": bool(grounded),
