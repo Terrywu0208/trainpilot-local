@@ -13,7 +13,8 @@ import math
 from pathlib import Path
 from typing import Any
 
-from trainpilot.config.models import MODEL_MINI
+from trainpilot.config.models import (MODEL_MINI, NODE_MODEL_ROUTING,
+                                     llm_provider)
 
 from .ledger import load_prices
 from .metrics import flipping_tasks, mean, p95, pass_at_k_stats
@@ -40,9 +41,16 @@ def collect_records(results_path: str | Path) -> list[dict]:
 
 def default_params() -> dict:
     prices = load_prices(DEFAULT_PRICES)
+    provider = llm_provider()
+    routing = ", ".join(f"{node}={model}/{effort}" for node, (model, effort)
+                        in NODE_MODEL_ROUTING.items())
     return {
-        "model": MODEL_MINI,
-        "temperature": "0 (deterministic runs; stub provider in offline mode)",
+        "model": (f"provider={provider}; baseline={MODEL_MINI}/medium; "
+                  f"agent nodes: {routing}"),
+        "temperature": ("provider default (GPT-5 reasoning models take no "
+                        "temperature; runs are not deterministic)"
+                        if provider == "openai" else
+                        "n/a (deterministic offline stub, no real model)"),
         "tool_set": "gateway v1: 13 tools (7 read, 6 mutating, no general shell)",
         "budget": "1500 s wall clock / 40 tool calls / 120000 tokens per task",
         "price_table_version": prices.get("price_table_version"),
@@ -91,6 +99,7 @@ def build_summary(records: list[dict], params: dict | None = None) -> dict:
             "pass_at_k": stats,
             "flipping_tasks": flipping_tasks(outcomes),
             "avg_turns": mean([r["turns"] for r in recs]),
+            "avg_tool_calls": mean([r.get("tool_calls", 0) for r in recs]),
             "avg_latency_s": mean([r["latency_s"] for r in recs]),
             "p95_latency_s": p95([r["latency_s"] for r in recs]),
             "avg_tokens": mean([r["tokens"] for r in recs]),
@@ -132,8 +141,29 @@ def build_summary(records: list[dict], params: dict | None = None) -> dict:
     return summary
 
 
+def _repeats(summary: dict) -> int:
+    """k for pass@k / pass^k: the number of repeats per task."""
+    ks = [max((int(x) for x in s["pass_at_k"].get("per_k", {})), default=1)
+          for s in summary["systems"].values()]
+    return max(ks, default=1)
+
+
+def _noise_note(summary: dict) -> str:
+    tasks = max((s["tasks"] for s in summary["systems"].values()), default=0)
+    if not tasks:
+        return "no tasks."
+    se = math.sqrt(0.8 * 0.2 / tasks) * 100
+    return (f"with {tasks} tasks, +/-{se:.0f} points is about one standard "
+            "error (binomial, near p = 0.8).")
+
+
+def _fmt_cost(value) -> str:
+    return "n/a" if value is None else f"{value:.4f}"
+
+
 def render_markdown(summary: dict) -> str:
     p = summary["parameters"]
+    k = _repeats(summary)
     lines = [
         "# TrainPilot-Local experiment report",
         "",
@@ -145,26 +175,26 @@ def render_markdown(summary: dict) -> str:
         f"- Price table version: {p['price_table_version']}",
         f"- Safety policy: {p['safety_policy']}",
         "",
-        "Noise note: with 200 tasks, +/-3 points is about one standard error "
-        "(binomial, near p = 0.8). Per-system Wilson 95% intervals are shown "
-        "in Table 1. Any delta smaller than the noise band is reported as "
-        "not significant.",
+        f"Noise note: {_noise_note(summary)} Per-system Wilson 95% intervals "
+        "are shown in Table 1. Any delta smaller than the noise band is "
+        "reported as not significant.",
         "",
         "## Table 1 — Overall results per system",
         "",
-        "| System | Runs | Accuracy | Wilson 95% | pass@1 | pass^1 | Avg turns | Avg latency (s) | p95 latency (s) | Avg tokens | Cost/task (USD) | Cost/success (USD) |",
-        "|---|---|---|---|---|---|---|---|---|---|---|---|",
+        f"| System | Runs | Accuracy | Wilson 95% | pass@{k} | pass^{k} | Avg turns (LLM calls) | Avg tool calls | Avg latency (s) | p95 latency (s) | Avg tokens | Cost/task (USD) | Cost/success (USD) |",
+        "|---|---|---|---|---|---|---|---|---|---|---|---|---|",
     ]
     for name, s in sorted(summary["systems"].items()):
         pk = s["pass_at_k"]
         lines.append(
             f"| {name} | {s['runs']} | {s['accuracy']:.3f} | "
             f"[{s['accuracy_wilson95'][0]:.3f}, {s['accuracy_wilson95'][1]:.3f}] | "
-            f"{pk.get('pass@1', 0):.3f} | {pk.get('pass^1', 0):.3f} | "
-            f"{s['avg_turns']:.1f} | {s['avg_latency_s']:.2f} | "
+            f"{pk.get(f'pass@{k}', 0):.3f} | {pk.get(f'pass^{k}', 0):.3f} | "
+            f"{s['avg_turns']:.1f} | {s['avg_tool_calls']:.1f} | "
+            f"{s['avg_latency_s']:.2f} | "
             f"{s['p95_latency_s']:.2f} | {s['avg_tokens']:.0f} | "
             f"{s['cost_per_task_usd']:.4f} | "
-            f"{s['cost_per_successful_task_usd'] if s['cost_per_successful_task_usd'] is not None else 'n/a'} |")
+            f"{_fmt_cost(s['cost_per_successful_task_usd'])} |")
     lines += ["", "## Table 2 — Accuracy by fault family", "",
               "| System | Family | Runs | Accuracy |", "|---|---|---|---|"]
     for name, s in sorted(summary["systems"].items()):
@@ -203,7 +233,7 @@ def render_markdown(summary: dict) -> str:
             f"| {name} | {s['avg_tokens']:.0f} | {s['p95_tokens']:.0f} | "
             f"{s['avg_latency_s']:.2f} | {s['p95_latency_s']:.2f} | "
             f"{s['total_cost_usd']:.4f} | {s['cost_per_task_usd']:.4f} | "
-            f"{s['cost_per_successful_task_usd'] if s['cost_per_successful_task_usd'] is not None else 'n/a'} |")
+            f"{_fmt_cost(s['cost_per_successful_task_usd'])} |")
     lines += ["", "## Table 6 — Ablations", ""]
     if summary["ablations_present"]:
         lines += ["| System (ablation) | Runs | Accuracy |", "|---|---|---|"]

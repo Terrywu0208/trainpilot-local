@@ -69,13 +69,28 @@ class LLMClient:
         # for offline work.
         from openai import OpenAI  # type: ignore
 
-        client = OpenAI(api_key=api_key)
-        resp = client.responses.create(
-            model=model,
-            instructions=system,
-            input=user,
-            reasoning={"effort": effort},
-        )
+        client = OpenAI(api_key=api_key, max_retries=0)
+        # Transient API errors (rate limits, timeouts, 5xx) are retried with
+        # backoff so they are not scored as agent failures; anything still
+        # failing after the last try propagates and the run fails.
+        attempts = 5
+        for i in range(attempts):
+            try:
+                resp = client.responses.create(
+                    model=model,
+                    instructions=system,
+                    input=user,
+                    reasoning={"effort": effort},
+                    timeout=180,
+                )
+                break
+            except Exception as exc:  # openai.APIError family
+                transient = type(exc).__name__ in {
+                    "RateLimitError", "APITimeoutError", "APIConnectionError",
+                    "InternalServerError"}
+                if not transient or i == attempts - 1:
+                    raise
+                time.sleep(min(60.0, 2.0 * 2 ** i))
         usage = getattr(resp, "usage", None)
         return (
             resp.output_text,

@@ -17,7 +17,10 @@ ROOT_RUN_ARTIFACTS = [
 
 def test_lab50_cli_end_to_end(tmp_path):
     out = tmp_path / "lab50"
+    # demo_agent is the rule-based reference system; the lab50 default
+    # agent is planning_agent, so name the systems explicitly here.
     rc = harness_main(["--mode", "lab50", "--out", str(out),
+                       "--systems", "demo_agent,non_agentic_baseline",
                        "--repeats", "3"])
     assert rc == 0
     for name in ("results_table.md", "results.json", "summary.json",
