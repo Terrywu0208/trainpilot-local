@@ -11,8 +11,11 @@
 | `summary.json` | The same numbers, machine-readable |
 | `failure_analysis.md` | One traced failure: which step went wrong, and why |
 
-The eval script lives in the repo: `eval/eval_harness.py` (entry point), `eval/runner.py`
-(matrix + grading), `eval/systems.py` (the two systems), and `eval/report.py` (table).
+**Eval script:** https://github.com/Terrywu0208/trainpilot-local/tree/lab50-eval-real-llm/eval
+- `eval/eval_harness.py`: entry point
+- `eval/runner.py`: matrix and grading
+- `eval/systems.py`: the two systems
+- `eval/report.py`: the results table
 
 ## How to run (one script, both systems, 3 repeats)
 
