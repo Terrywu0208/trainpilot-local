@@ -146,6 +146,9 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--workers", type=int, default=1,
                         help="parallel jobs (each job has its own LLM client, "
                              "gateway and budget; use >1 with a real model)")
+    parser.add_argument("--max-cost-usd", type=float, default=None,
+                        help="stop starting new jobs once recorded API cost "
+                             "reaches this many USD (resume later with --out)")
     parser.add_argument("--limit", type=int, default=None,
                         help="only the first N tasks (smoke runs)")
     args = parser.parse_args(argv)
@@ -166,7 +169,8 @@ def main(argv: list[str] | None = None) -> int:
 
     preflight_llm()
     result = run_matrix(tasks, systems, repeats, out_dir, mode=mode,
-                        seed=args.seed, workers=args.workers)
+                        seed=args.seed, workers=args.workers,
+                        max_cost_usd=args.max_cost_usd)
     summary = report_mod.write_report(result["records"], out_dir)
     write_failure_trace(result["records"], out_dir)
 

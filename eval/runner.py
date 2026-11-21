@@ -184,7 +184,8 @@ def _write_run_artifacts(run_dir: Path, *, task: TaskSpec, system_name: str,
 def run_matrix(tasks: list[TaskSpec], system_names: list[str], repeats: int,
                out_dir: str | Path, *, mode: str = "lab50", seed: int = 42,
                prices_path: str | Path | None = None,
-               workers: int = 1) -> dict:
+               workers: int = 1,
+               max_cost_usd: float | None = None) -> dict:
     out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
     prices = load_prices(prices_path or DEFAULT_PRICES)
@@ -200,18 +201,27 @@ def run_matrix(tasks: list[TaskSpec], system_names: list[str], repeats: int,
     task_by_id = {t.id: t for t in tasks}
     records: list[dict[str, Any]] = []
     lock = threading.Lock()
-    progress = {"done": 0}
+    progress = {"done": 0, "cost": 0.0, "skipped": 0}
 
     def run_one(job: dict) -> None:
+        # Hard spend cap: once the API cost recorded so far reaches the cap,
+        # no new job starts (jobs already in flight finish). Skipped jobs
+        # leave no artifacts, so a later run with the same --out resumes.
+        with lock:
+            if max_cost_usd is not None and progress["cost"] >= max_cost_usd:
+                job["status"] = "skipped_cost_cap"
+                progress["skipped"] += 1
+                return
         record = _run_job(job, task_by_id[job["task_id"]], out_dir, mode,
                           prices, hidden)
         with lock:
             records.append(record)
+            progress["cost"] += float(record.get("cost_usd", 0.0))
             progress["done"] += 1
             if workers > 1:
                 print(f"[{progress['done']}/{len(jobs)}] {job['run_id']} "
-                      f"pass={record['passed']} {record['latency_s']}s",
-                      flush=True)
+                      f"pass={record['passed']} {record['latency_s']}s "
+                      f"spent=${progress['cost']:.3f}", flush=True)
 
     if workers > 1:
         with ThreadPoolExecutor(max_workers=workers) as pool:
@@ -220,6 +230,9 @@ def run_matrix(tasks: list[TaskSpec], system_names: list[str], repeats: int,
         for job in jobs:
             run_one(job)
 
+    if progress["skipped"]:
+        print(f"COST CAP ${max_cost_usd:.2f} reached: {progress['skipped']} "
+              "jobs not run; rerun with the same --out to resume.", flush=True)
     with queue_path.open("w") as fh:
         for job in jobs:
             fh.write(json.dumps(job) + "\n")
