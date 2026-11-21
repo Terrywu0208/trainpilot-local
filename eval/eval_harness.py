@@ -118,6 +118,20 @@ def write_failure_trace(records: list[dict], out_dir: Path) -> Path | None:
     return path
 
 
+def preflight_llm() -> None:
+    """With a real provider, make one tiny call before the matrix starts.
+    A bad or expired key must stop the run here, not be recorded as 300
+    'agent failures' that a later resume would then skip as done."""
+    from trainpilot.config.models import MODEL_NANO, llm_provider
+    from trainpilot.llm import LLMClient
+    if llm_provider() != "openai":
+        return
+    try:
+        LLMClient().chat("Reply with OK.", "ping", MODEL_NANO, effort="low")
+    except Exception as exc:
+        raise SystemExit(f"LLM preflight failed, nothing was run: {exc}")
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--mode", choices=sorted(MODE_DEFAULTS),
@@ -150,6 +164,7 @@ def main(argv: list[str] | None = None) -> int:
     if args.limit:
         tasks = tasks[: args.limit]
 
+    preflight_llm()
     result = run_matrix(tasks, systems, repeats, out_dir, mode=mode,
                         seed=args.seed, workers=args.workers)
     summary = report_mod.write_report(result["records"], out_dir)

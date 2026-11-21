@@ -11,6 +11,7 @@ from __future__ import annotations
 import json
 import os
 import re
+import threading
 import time
 from dataclasses import dataclass, field
 from typing import Any, Optional
@@ -65,11 +66,7 @@ class LLMClient:
                 "TRAINPILOT_LLM_PROVIDER=openai but OPENAI_API_KEY is not set. "
                 "Refusing to continue; the stub provider is the default."
             )
-        # Imported lazily so the package never requires the SDK (or a key)
-        # for offline work.
-        from openai import OpenAI  # type: ignore
-
-        client = OpenAI(api_key=api_key, max_retries=0)
+        client = _shared_openai_client(api_key)
         # Transient API errors (rate limits, timeouts, 5xx) are retried with
         # backoff so they are not scored as agent failures; anything still
         # failing after the last try propagates and the run fails.
@@ -103,6 +100,24 @@ class LLMClient:
         if self._stub_handler is not None:
             return self._stub_handler(system, user, model)
         return default_stub_response(system, user)
+
+
+_OPENAI_LOCK = threading.Lock()
+_OPENAI_CLIENTS: dict[str, Any] = {}
+
+
+def _shared_openai_client(api_key: str):
+    """One OpenAI client per key, created under a lock: the SDK is imported
+    lazily (offline work never needs it), and concurrent first imports from
+    eval worker threads would otherwise race on a half-initialized module."""
+    with _OPENAI_LOCK:
+        client = _OPENAI_CLIENTS.get(api_key)
+        if client is None:
+            from openai import OpenAI  # type: ignore
+
+            client = OpenAI(api_key=api_key, max_retries=0)
+            _OPENAI_CLIENTS[api_key] = client
+        return client
 
 
 def _extract_json_block(text: str) -> Optional[dict]:
