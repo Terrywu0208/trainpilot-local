@@ -608,6 +608,16 @@ def make_executor_node(ctx: AgentContext):
             }
         spec = TrainingSpec(**state["spec"])
         attempt_dir = ctx.attempt_dir(attempt) or Path(".")
+        # Named repair actions (rebuild image, sanitize labels) are not
+        # TrainingSpec fields; hand them to executors that can carry them
+        # out. Executors without the hook are unaffected.
+        action_fixes: dict[str, Any] = {}
+        for entry in state.get("failure_memory", []) or []:
+            for key, value in (entry.get("fix_applied") or {}).items():
+                if key in _ACTION_FIX_KEYS:
+                    action_fixes[key] = value
+        if action_fixes and hasattr(ctx.executor, "apply_repair_actions"):
+            ctx.executor.apply_repair_actions(action_fixes)
         result = ctx.executor.execute(spec, attempt, attempt_dir)
         working = budget_mod.budget_from_state(state.get("budget"))
         working = budget_mod.charge_tool_call(working)

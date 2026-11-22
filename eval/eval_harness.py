@@ -12,6 +12,8 @@ Modes:
 
 Examples:
     python -m eval.eval_harness --mode lab50
+    TRAINPILOT_LLM_PROVIDER=openai python -m eval.eval_harness --mode lab50 --workers 8
+    python -m eval.eval_harness --mode lab50 --limit 5 --repeats 1   # smoke
     python -m eval.eval_harness --mode demo --out runs/demo
     python -m eval.eval_harness --mode cluster --systems template_script,react_agent,planning_agent
 """
@@ -37,7 +39,10 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 MODE_DEFAULTS = {
     "lab50": {
         "tasks": REPO_ROOT / "benchmark" / "tasks_lab50.jsonl",
-        "systems": ["demo_agent", "non_agentic_baseline"],
+        # planning_agent is the project agent (LangGraph plan -> execute ->
+        # critic -> repair -> verify); demo_agent is a rule-based reference
+        # that never calls a model and is not the system under test.
+        "systems": ["planning_agent", "non_agentic_baseline"],
         "repeats": 3,
         "out": REPO_ROOT / "runs" / "lab50",
     },
@@ -76,6 +81,7 @@ def write_failure_trace(records: list[dict], out_dir: Path) -> Path | None:
     failed = [r for r in records if not r["passed"] and r["system"] !=
               "non_agentic_baseline"]
     pool = failed or [r for r in records if not r["passed"]]
+    pool = sorted(pool, key=lambda r: (r["system"], r["task_id"], r["repeat"]))
     if not pool:
         return None
     first = pool[0]
@@ -112,6 +118,20 @@ def write_failure_trace(records: list[dict], out_dir: Path) -> Path | None:
     return path
 
 
+def preflight_llm() -> None:
+    """With a real provider, make one tiny call before the matrix starts.
+    A bad or expired key must stop the run here, not be recorded as 300
+    'agent failures' that a later resume would then skip as done."""
+    from trainpilot.config.models import MODEL_NANO, llm_provider
+    from trainpilot.llm import LLMClient
+    if llm_provider() != "openai":
+        return
+    try:
+        LLMClient().chat("Reply with OK.", "ping", MODEL_NANO, effort="low")
+    except Exception as exc:
+        raise SystemExit(f"LLM preflight failed, nothing was run: {exc}")
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--mode", choices=sorted(MODE_DEFAULTS),
@@ -123,6 +143,14 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--repeats", type=int, default=None)
     parser.add_argument("--out", default=None, help="output directory")
     parser.add_argument("--seed", type=int, default=42)
+    parser.add_argument("--workers", type=int, default=1,
+                        help="parallel jobs (each job has its own LLM client, "
+                             "gateway and budget; use >1 with a real model)")
+    parser.add_argument("--max-cost-usd", type=float, default=None,
+                        help="stop starting new jobs once recorded API cost "
+                             "reaches this many USD (resume later with --out)")
+    parser.add_argument("--limit", type=int, default=None,
+                        help="only the first N tasks (smoke runs)")
     args = parser.parse_args(argv)
 
     defaults = MODE_DEFAULTS[args.mode]
@@ -136,9 +164,13 @@ def main(argv: list[str] | None = None) -> int:
     tasks = load_tasks(tasks_path)
     if args.mode == "cluster":
         tasks = _canonical_points(tasks)
+    if args.limit:
+        tasks = tasks[: args.limit]
 
+    preflight_llm()
     result = run_matrix(tasks, systems, repeats, out_dir, mode=mode,
-                        seed=args.seed)
+                        seed=args.seed, workers=args.workers,
+                        max_cost_usd=args.max_cost_usd)
     summary = report_mod.write_report(result["records"], out_dir)
     write_failure_trace(result["records"], out_dir)
 

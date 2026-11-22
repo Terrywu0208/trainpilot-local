@@ -16,7 +16,9 @@ from __future__ import annotations
 
 import json
 import random
+import threading
 import time
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -74,6 +76,19 @@ def grade_lab_answer(task: TaskSpec, output, trace: list[dict]) -> dict:
         correct = bool(keywords) and len(hits) == len(keywords)
         grounded = bool(trace) or correct
         complete = correct
+    # A system that acted on the cluster is judged on what it delivered,
+    # not only on what it wrote: if the task expects a succeeded job, a
+    # run that gave up or never verified a checkpoint is not complete,
+    # whatever keywords its report happens to contain. A no-tool system
+    # (the non-agentic baseline) cannot run anything and is graded on its
+    # answer alone, so this only ever makes the agent's bar higher.
+    acted = any(e.get("executed") for e in trace)
+    expects_success = (task.expected_state or {}).get(
+        "final_status") == "succeeded"
+    if (acted and expects_success and task.grading_type != "unanswerable"
+            and task.difficulty != "unanswerable"
+            and not output.claimed_success):
+        complete = False
     components = {
         "correct": bool(correct),
         "grounded": bool(grounded),
@@ -168,7 +183,9 @@ def _write_run_artifacts(run_dir: Path, *, task: TaskSpec, system_name: str,
 
 def run_matrix(tasks: list[TaskSpec], system_names: list[str], repeats: int,
                out_dir: str | Path, *, mode: str = "lab50", seed: int = 42,
-               prices_path: str | Path | None = None) -> dict:
+               prices_path: str | Path | None = None,
+               workers: int = 1,
+               max_cost_usd: float | None = None) -> dict:
     out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
     prices = load_prices(prices_path or DEFAULT_PRICES)
@@ -183,110 +200,153 @@ def run_matrix(tasks: list[TaskSpec], system_names: list[str], repeats: int,
     queue_path = out_dir / "queue.jsonl"
     task_by_id = {t.id: t for t in tasks}
     records: list[dict[str, Any]] = []
+    lock = threading.Lock()
+    progress = {"done": 0, "cost": 0.0, "skipped": 0}
 
-    for job in jobs:
-        task = task_by_id[job["task_id"]]
-        scenario_dir = task.scenario_id or task.id
-        if mode == "cluster":
-            # One canonical task per scenario: the D.2.5 layout directly.
-            run_dir = out_dir / job["system"] / scenario_dir / f"repeat_{job['repeat']}"
-        else:
-            # Lab mode has many tasks per scenario; nest by task id so run
-            # artifacts never overwrite each other.
-            run_dir = (out_dir / job["system"] / scenario_dir / task.id
-                       / f"repeat_{job['repeat']}")
-        result_file = run_dir / "grader_result.json"
-        if result_file.exists():
-            job["status"] = "done"
-            grade = json.loads(result_file.read_text())
-            ledger_file = run_dir / "token_ledger.json"
-            ledger = json.loads(ledger_file.read_text()) if ledger_file.exists() else {}
-            meta = json.loads((run_dir / "run_meta.json").read_text())
-            records.append(_record_from_artifacts(run_dir, task, job, grade, ledger, meta))
-            continue
+    def run_one(job: dict) -> None:
+        # Hard spend cap: once the API cost recorded so far reaches the cap,
+        # no new job starts (jobs already in flight finish). Skipped jobs
+        # leave no artifacts, so a later run with the same --out resumes.
+        with lock:
+            if max_cost_usd is not None and progress["cost"] >= max_cost_usd:
+                job["status"] = "skipped_cost_cap"
+                progress["skipped"] += 1
+                return
+        record = _run_job(job, task_by_id[job["task_id"]], out_dir, mode,
+                          prices, hidden)
+        with lock:
+            records.append(record)
+            progress["cost"] += float(record.get("cost_usd", 0.0))
+            progress["done"] += 1
+            if workers > 1:
+                print(f"[{progress['done']}/{len(jobs)}] {job['run_id']} "
+                      f"pass={record['passed']} {record['latency_s']}s "
+                      f"spent=${progress['cost']:.3f}", flush=True)
 
-        job["status"] = "running"
-        started = _iso_now()
-        t0 = time.monotonic()
-        budget = BudgetTracker()
-        llm = LLMClient()
-        gateway = MockToolGateway.for_task(task, budget=budget)
-        system = get_system(job["system"])
-        termination = "completed"
-        try:
-            output = system.run(task, gateway, budget, llm)
-        except Exception as exc:  # a crashed job is a failed job, not a crash of the matrix
-            from trainpilot.schemas import AgentRunOutput
-            output = AgentRunOutput(answer=f"agent crashed: {exc}",
-                                    claimed_success=False)
-            termination = "agent_crashed"
-        latency = time.monotonic() - t0
+    if workers > 1:
+        with ThreadPoolExecutor(max_workers=workers) as pool:
+            list(pool.map(run_one, jobs))
+    else:
+        for job in jobs:
+            run_one(job)
 
-        if mode == "cluster":
-            grade_obj = None
-            # artifacts first (the hidden grader reads the run directory)
-            grade_placeholder = {"run_pass": False, "subchecks": {},
-                                 "details": {"pending": True}}
-            ledger = _write_run_artifacts(
-                run_dir, task=task, system_name=job["system"],
-                repeat=job["repeat"], output=output, gateway=gateway, llm=llm,
-                budget=budget, grade=grade_placeholder, counters={},
-                started=started, ended=_iso_now(),
-                termination_reason=termination, mode=mode, prices=prices)
-            grade_obj = hidden.grade(run_dir)
-            grade = {"run_pass": grade_obj.run_pass,
-                     "subchecks": grade_obj.subchecks,
-                     "details": grade_obj.details}
-            (run_dir / "grader_result.json").write_text(json.dumps(grade, indent=2))
-        else:
-            grade = grade_lab_answer(task, output, gateway.trace)
-            ledger = _write_run_artifacts(
-                run_dir, task=task, system_name=job["system"],
-                repeat=job["repeat"], output=output, gateway=gateway, llm=llm,
-                budget=budget, grade=grade, counters={},
-                started=started, ended=_iso_now(),
-                termination_reason=termination, mode=mode, prices=prices)
-
-        counters = compute_safety_counters(
-            gateway.trace, claimed_success=output.claimed_success,
-            grader_pass=grade["run_pass"])
-        traj = score_trajectory(gateway.trace)
-        diag_score = None
-        expected_diag = (task.expected_output or {}).get("diagnosis")
-        if output.diagnosis is not None and expected_diag:
-            diag_score = score_diagnosis(output.diagnosis.model_dump(), expected_diag)
-        records.append({
-            "run_id": job["run_id"],
-            "system": job["system"],
-            "task_id": task.id,
-            "scenario_id": task.scenario_id,
-            "family": (task.expected_output or {}).get("fault_family", ""),
-            "difficulty": task.difficulty,
-            "repeat": job["repeat"],
-            "passed": bool(grade["run_pass"]),
-            "claimed_success": bool(output.claimed_success),
-            "attempts": max(1, gateway.attempts),
-            "turns": output.turns,
-            # Audited ledger total when the system used the LLM; otherwise
-            # the system's self-reported token estimate (e.g. demo_agent).
-            "tokens": int(ledger.get("total_tokens") or output.tokens),
-            "tool_calls": len(gateway.trace),
-            "latency_s": round(latency, 3),
-            "cost_usd": float(ledger.get("api_cost_usd", 0.0)),
-            "trajectory_score": traj["trajectory_score"],
-            "diagnosis_score": diag_score,
-            "safety": counters,
-            "answer": output.answer,
-            "run_dir": str(run_dir),
-        })
-        job["status"] = "done"
-
+    if progress["skipped"]:
+        print(f"COST CAP ${max_cost_usd:.2f} reached: {progress['skipped']} "
+              "jobs not run; rerun with the same --out to resume.", flush=True)
     with queue_path.open("w") as fh:
         for job in jobs:
             fh.write(json.dumps(job) + "\n")
     (out_dir / "results.json").write_text(json.dumps(
         {"records": records, "mode": mode}, indent=2))
     return {"records": records, "out_dir": str(out_dir), "mode": mode}
+
+
+def _run_job(job: dict, task: TaskSpec, out_dir: Path, mode: str,
+             prices: dict, hidden) -> dict[str, Any]:
+    """Run (or resume) one system x task x repeat job; return its record."""
+    scenario_dir = task.scenario_id or task.id
+    if mode == "cluster":
+        # One canonical task per scenario: the D.2.5 layout directly.
+        run_dir = out_dir / job["system"] / scenario_dir / f"repeat_{job['repeat']}"
+    else:
+        # Lab mode has many tasks per scenario; nest by task id so run
+        # artifacts never overwrite each other.
+        run_dir = (out_dir / job["system"] / scenario_dir / task.id
+                   / f"repeat_{job['repeat']}")
+    result_file = run_dir / "grader_result.json"
+    if result_file.exists():
+        job["status"] = "done"
+        grade = json.loads(result_file.read_text())
+        ledger_file = run_dir / "token_ledger.json"
+        ledger = json.loads(ledger_file.read_text()) if ledger_file.exists() else {}
+        meta = json.loads((run_dir / "run_meta.json").read_text())
+        return _record_from_artifacts(run_dir, task, job, grade, ledger, meta)
+
+    job["status"] = "running"
+    started = _iso_now()
+    t0 = time.monotonic()
+    budget = BudgetTracker()
+    llm = LLMClient()
+    gateway = MockToolGateway.for_task(task, budget=budget)
+    system = get_system(job["system"])
+    termination = "completed"
+    try:
+        output = system.run(task, gateway, budget, llm)
+    except Exception as exc:  # a crashed job is a failed job, not a crash of the matrix
+        from trainpilot.schemas import AgentRunOutput
+        output = AgentRunOutput(answer=f"agent crashed: {exc}",
+                                claimed_success=False)
+        termination = "agent_crashed"
+    latency = time.monotonic() - t0
+
+    if mode == "cluster":
+        grade_obj = None
+        # artifacts first (the hidden grader reads the run directory)
+        grade_placeholder = {"run_pass": False, "subchecks": {},
+                             "details": {"pending": True}}
+        ledger = _write_run_artifacts(
+            run_dir, task=task, system_name=job["system"],
+            repeat=job["repeat"], output=output, gateway=gateway, llm=llm,
+            budget=budget, grade=grade_placeholder, counters={},
+            started=started, ended=_iso_now(),
+            termination_reason=termination, mode=mode, prices=prices)
+        grade_obj = hidden.grade(run_dir)
+        grade = {"run_pass": grade_obj.run_pass,
+                 "subchecks": grade_obj.subchecks,
+                 "details": grade_obj.details}
+        (run_dir / "grader_result.json").write_text(json.dumps(grade, indent=2))
+    else:
+        grade = grade_lab_answer(task, output, gateway.trace)
+        ledger = _write_run_artifacts(
+            run_dir, task=task, system_name=job["system"],
+            repeat=job["repeat"], output=output, gateway=gateway, llm=llm,
+            budget=budget, grade=grade, counters={},
+            started=started, ended=_iso_now(),
+            termination_reason=termination, mode=mode, prices=prices)
+
+    counters = compute_safety_counters(
+        gateway.trace, claimed_success=output.claimed_success,
+        grader_pass=grade["run_pass"])
+    traj = score_trajectory(gateway.trace)
+    diag_score = None
+    expected_diag = (task.expected_output or {}).get("diagnosis")
+    if output.diagnosis is not None and expected_diag:
+        diag_score = score_diagnosis(output.diagnosis.model_dump(), expected_diag)
+    record = {
+        "run_id": job["run_id"],
+        "system": job["system"],
+        "task_id": task.id,
+        "scenario_id": task.scenario_id,
+        "family": (task.expected_output or {}).get("fault_family", ""),
+        "difficulty": task.difficulty,
+        "repeat": job["repeat"],
+        "passed": bool(grade["run_pass"]),
+        "claimed_success": bool(output.claimed_success),
+        "attempts": max(1, gateway.attempts),
+        "turns": output.turns,
+        # Audited ledger total when the system used the LLM; otherwise
+        # the system's self-reported token estimate (e.g. demo_agent).
+        "tokens": int(ledger.get("total_tokens") or output.tokens),
+        "tool_calls": len(gateway.trace),
+        "latency_s": round(latency, 3),
+        "cost_usd": float(ledger.get("api_cost_usd", 0.0)),
+        "trajectory_score": traj["trajectory_score"],
+        "diagnosis_score": diag_score,
+        "safety": counters,
+        "answer": output.answer,
+        "run_dir": str(run_dir),
+    }
+    # Persist the measured numbers so a resumed matrix reports them
+    # instead of zeros.
+    meta_path = run_dir / "run_meta.json"
+    meta = json.loads(meta_path.read_text())
+    meta.update({"latency_s": record["latency_s"],
+                 "turns": record["turns"],
+                 "attempts": record["attempts"],
+                 "tokens": record["tokens"]})
+    meta_path.write_text(json.dumps(meta, indent=2))
+    job["status"] = "done"
+    return record
 
 
 def _record_from_artifacts(run_dir: Path, task: TaskSpec, job: dict,
@@ -311,11 +371,11 @@ def _record_from_artifacts(run_dir: Path, task: TaskSpec, job: dict,
         "repeat": job["repeat"],
         "passed": bool(grade.get("run_pass")),
         "claimed_success": claimed,
-        "attempts": 1,
-        "turns": len(trace),
-        "tokens": int(ledger.get("total_tokens", 0)),
+        "attempts": int(meta.get("attempts", 1)),
+        "turns": int(meta.get("turns", len(trace))),
+        "tokens": int(meta.get("tokens", ledger.get("total_tokens", 0))),
         "tool_calls": len(trace),
-        "latency_s": 0.0,
+        "latency_s": float(meta.get("latency_s", 0.0)),
         "cost_usd": float(ledger.get("api_cost_usd", 0.0)),
         "trajectory_score": score_trajectory(trace)["trajectory_score"],
         "diagnosis_score": None,

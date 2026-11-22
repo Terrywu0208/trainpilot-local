@@ -20,6 +20,8 @@ One adapter interface for both maturities: `run(task, gateway, budget, llm)
 from __future__ import annotations
 
 import json
+import tempfile
+from pathlib import Path
 from typing import Any, Optional
 
 from trainpilot.config.models import MODEL_MINI
@@ -38,6 +40,21 @@ REFUSAL_MARKERS = (
 UNANSWERABLE_MARKERS = (
     "never ran", "does not exist", "nonexistent", "no such run",
     "2031", "not exist", "never finished", "supposedly finished",
+)
+
+# Non-agentic baseline: one call, no tools, no loop. It gets the same
+# domain framing as the agent so the comparison isolates tool use and
+# feedback, not prompt quality.
+BASELINE_SYSTEM_PROMPT = (
+    "You are an ML infrastructure assistant for a local Kind cluster running "
+    "the KubeRay operator (CPU-only nodes, no GPUs). The user will describe a "
+    "training job or a failed RayJob. You cannot run commands, read logs, or "
+    "inspect the cluster; answer from the request alone. State the likely "
+    "root cause (or that the run should be clean), the concrete fix or "
+    "configuration you would use (distributed backend, per-worker batch size, "
+    "memory, dependencies, data), and what evidence would confirm it. If the "
+    "question asks about a specific run, file, or number you have no way to "
+    "know, say \"I don't know\" and explain why instead of guessing."
 )
 
 _FAMILY_BY_ERROR = {
@@ -70,6 +87,29 @@ def map_fix_to_code(patch: dict[str, Any]) -> str:
     return "UNKNOWN_FIX"
 
 
+def _planning_answer(result: dict[str, Any], run_dir: Path) -> str:
+    """The agent's full user-facing answer: its final message, its own run
+    report (diagnoses and fixes), and the final configuration it ran."""
+    parts = [str(result.get("final_message", ""))]
+    report = run_dir / "final_report.md"
+    if report.exists():
+        parts.append(report.read_text(encoding="utf-8"))
+    spec = result.get("spec") or {}
+    if spec:
+        keys = ("backend", "num_workers", "per_worker_batch_size",
+                "gradient_accumulation_steps", "resources_per_worker_memory",
+                "learning_rate")
+        parts.append("Final configuration: " + ", ".join(
+            f"{k}={spec[k]}" for k in keys if k in spec))
+    return "\n\n".join(p for p in parts if p)
+
+
+def _ledger_tokens(llm: LLMClient) -> int:
+    """Real token usage recorded by the LLM client (prompt + completion)."""
+    return sum(int(e.get("prompt_tokens", 0)) + int(e.get("completion_tokens", 0))
+               for e in llm.ledger)
+
+
 def diagnosis_record(diag: dict[str, Any]) -> DiagnosisRecord:
     family = _FAMILY_BY_ERROR.get(str(diag.get("error_class", "UNKNOWN")), "unknown")
     return DiagnosisRecord(
@@ -81,8 +121,9 @@ def diagnosis_record(diag: dict[str, Any]) -> DiagnosisRecord:
 
 
 def _is_unanswerable(task: TaskSpec) -> bool:
-    if task.grading_type == "unanswerable" or task.difficulty == "unanswerable":
-        return True
+    # Systems may only look at what a real user would send: the prompt.
+    # The task's difficulty / grading_type labels are grader-side ground
+    # truth and must never steer the system under test.
     text = task.prompt.lower()
     return any(m in text for m in UNANSWERABLE_MARKERS)
 
@@ -162,7 +203,7 @@ class NonAgenticBaseline:
 
     def run(self, task: TaskSpec, gateway: MockToolGateway,
             budget: BudgetTracker, llm: LLMClient) -> AgentRunOutput:
-        resp = llm.chat("baseline", task.prompt, MODEL_MINI)
+        resp = llm.chat(BASELINE_SYSTEM_PROMPT, task.prompt, MODEL_MINI)
         return AgentRunOutput(
             answer=resp.text,
             claimed_success=False,
@@ -259,6 +300,16 @@ class _GatewayExecutor:
     def __init__(self, gateway: MockToolGateway):
         self.gateway = gateway
 
+    def apply_repair_actions(self, actions: dict[str, Any]) -> None:
+        """Carry out the agent's named repair actions through the gateway
+        (approval-gated like every other mutating tool)."""
+        if actions.get("rebuild_image_with_lockfile"):
+            self.gateway.call("build_image", {
+                "patch": {"rebuild_image_with_lockfile": True}})
+        if actions.get("sanitize_labels"):
+            self.gateway.call("edit_rayjob_yaml", {
+                "patch": {"sanitize_labels": True}})
+
     def execute(self, spec, attempt_index: int, attempt_dir) -> dict:
         patch = {
             "backend": getattr(spec, "backend", "gloo"),
@@ -276,11 +327,20 @@ class _GatewayExecutor:
         logs = self.gateway.call("get_rayjob_logs", {}).data.get("log", "")
         metrics = self.gateway.call("get_metrics", {}).data
         ok = status == "SUCCEEDED"
+        ckpt = None
+        if ok:
+            # Locate the checkpoint through the read tool, as a real
+            # executor would before handing it to the verifier.
+            self.gateway.call("list_checkpoints", {})
+            # The agent's verifier loads the checkpoint from disk, so a
+            # succeeded mock run must leave real files behind (inside the
+            # per-run temp directory PlanningAgent passes as run_dir).
+            ckpt = self.gateway.materialize_checkpoint(attempt_dir)
         return {
             "status": "succeeded" if ok else "failed",
             "logs": logs,
             "metrics": metrics if ok else None,
-            "checkpoint_dir": "checkpoint-final" if ok else None,
+            "checkpoint_dir": str(ckpt) if ckpt else None,
             "duration_seconds": 0.1,
         }
 
@@ -294,27 +354,38 @@ class PlanningAgent:
             from trainpilot.graph import run_agent  # section A, lazy import
             if not callable(run_agent):
                 raise ImportError("run_agent not available yet")
-            result = run_agent(
-                task.prompt,
-                executor=_GatewayExecutor(gateway),
-                llm_client=llm,
-                budget=None,
-            )
-            records = [
-                DiagnosisRecord(**r) if isinstance(r, dict) else r
-                for r in result.get("diagnosis_records", [])
-            ]
-            return AgentRunOutput(
-                answer=str(result.get("final_message", "")),
-                claimed_success=bool(result.get("claimed_success")),
-                turns=len(gateway.trace),
-                tokens=50 + 10 * len(gateway.trace),
-                tool_trace=list(gateway.trace),
-                diagnosis=records[-1] if records else None,
-                final_state={"attempts": result.get("attempts", 0)},
-            )
-        except Exception:
+        except ImportError:
             return self._mock_planning(task, gateway, budget, llm)
+        # A private run directory per run: the agent writes its attempt
+        # dirs, failure memory and final report there (never the repo).
+        run_dir = Path(tempfile.mkdtemp(prefix="tp-lab-run-"))
+        result = run_agent(
+            task.prompt,
+            run_dir=run_dir,
+            executor=_GatewayExecutor(gateway),
+            llm_client=llm,
+            # Approvals come from the same deterministic scripted user and
+            # policy table the tool gateway enforces (design D.2.3), not the
+            # graph's fallback "first launch only" handler.
+            approval_handler=lambda action: gateway.scripted_user.decide(
+                action, gateway.approval_ctx),
+            budget=None,
+        )
+        records = [
+            DiagnosisRecord(**r) if isinstance(r, dict) else r
+            for r in result.get("diagnosis_records", [])
+        ]
+        return AgentRunOutput(
+            answer=_planning_answer(result, run_dir),
+            claimed_success=bool(result.get("claimed_success")),
+            # turns = model calls (same unit as the baseline's single call);
+            # tool calls are reported separately by the runner.
+            turns=len(llm.ledger),
+            tokens=_ledger_tokens(llm),
+            tool_trace=list(gateway.trace),
+            diagnosis=records[-1] if records else None,
+            final_state={"attempts": result.get("attempts", 0)},
+        )
 
     def _mock_planning(self, task: TaskSpec, gateway: MockToolGateway,
                        budget: BudgetTracker, llm: LLMClient) -> AgentRunOutput:
