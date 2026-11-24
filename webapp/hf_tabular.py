@@ -21,7 +21,7 @@ class PredictLMEstimator(BaseEstimator):
         torch.set_num_threads(2)
         y = np.asarray(y)
         if self.task == 'classification' and len(np.unique(y)) > 10:
-            raise ValueError('PredictLM 最多支援 10 個類別。')
+            raise ValueError('PredictLM supports at most 10 classes.')
         if len(y) > 256:
             indexes = np.arange(len(y))
             stratify = y if self.task == 'classification' else None
@@ -41,7 +41,7 @@ class PredictLMEstimator(BaseEstimator):
         incompatible = net.load_state_dict(payload.get('ema', payload['model']), strict=False)
         allowed_missing = {'y_embed.freqs', 'reg_head.bin_edges', 'reg_head.bin_centers'}
         if incompatible.unexpected_keys or set(incompatible.missing_keys) - allowed_missing:
-            raise ValueError('Hugging Face 權重與模型結構不相符。')
+            raise ValueError('Hugging Face weights do not match the model architecture.')
         self.model_ = PredictLM(net, cfg, device='cpu', auto_duo=False)
         self.model_.fit(X, y, task_type=self.task)
         # Optimize on disjoint context/query subsets drawn only from the training split.
@@ -72,7 +72,7 @@ class PredictLMEstimator(BaseEstimator):
                 logits = net(x_ctx, y_ctx, x_query, mask, task_type='regression')
                 loss = bar_distribution_loss(logits, y_query, net.reg_head)
             if not torch.isfinite(loss):
-                raise ValueError('Hugging Face 微調 loss 不是有限值。')
+                raise ValueError('Hugging Face fine-tuning loss is not finite.')
             optimizer.zero_grad(set_to_none=True)
             loss.backward()
             torch.nn.utils.clip_grad_norm_(net.parameters(), 1.0)

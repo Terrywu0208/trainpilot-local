@@ -51,17 +51,17 @@ def _gemini_error_message(exc: Exception) -> str:
     from webapp import data_agent
     if data_agent.provider() == 'openai':
         if code == 429:
-            return 'OpenAI 額度或速率限制（429）；請檢查 API 餘額與用量後再試。'
+            return 'OpenAI quota or rate limit reached (429). Check API usage and billing before retrying.'
         if code in (401, 403):
-            return f'OpenAI 拒絕存取（{code}）；請檢查 API 金鑰與模型權限。'
-        return 'OpenAI 請求未完成，請檢查 API 狀態、模型權限或連線。'
+            return f'OpenAI access denied ({code}). Check the API key and model permissions.'
+        return 'OpenAI request failed. Check service status, model access, and connectivity.'
     if code in (502, 503, 504):
-        return f'Gemini 服務暫時無法回應（{code}）；請稍後再試。若已設定備援，系統已嘗試切換模型。'
+        return f'Gemini is temporarily unavailable ({code}). Retry later; configured fallbacks were attempted.'
     if code == 429:
-        return 'Gemini 已達速率或額度限制（429）；請查看 Google AI Studio 的實際用量後稍候再試。'
+        return 'Gemini rate or quota limit reached (429). Check Google AI Studio usage and retry later.'
     if code in (401, 403):
-        return f'Gemini 拒絕存取（{code}）；請檢查金鑰、專案與模型權限。'
-    return 'Gemini 請求未完成；請檢查網路與服務狀態後再試。'
+        return f'Gemini access denied ({code}). Check the API key, project, and model permissions.'
+    return 'Gemini request failed. Check network connectivity and service status.'
 
 # Node names come from Section A; the Plan View renders exactly these.
 PLAN_NODES = [
@@ -746,7 +746,7 @@ def create_app(run_agent_fn: Optional[Callable] = None,
         if not session and request.url.path.endswith('/report'):
             session = request.query_params.get('session')
         if session and not __import__('re').fullmatch(r'[a-f0-9]{32}', session):
-            return JSONResponse(status_code=400, content={'detail': '無效的訓練 session。'})
+            return JSONResponse(status_code=400, content={'detail': 'Invalid training session.'})
         root = classifier_root / 'sessions' / session if session else classifier_root
         token = active_training_root.set(root)
         try:
@@ -802,7 +802,7 @@ def create_app(run_agent_fn: Optional[Callable] = None,
         except ValueError as exc:
             raise HTTPException(400, str(exc)) from exc
         except (OSError, TimeoutError):
-            raise HTTPException(502, "無法連線 Hugging Face，請稍後再試。")
+            raise HTTPException(502, "Cannot connect to Hugging Face. Please retry later.")
 
     @app.get("/api/training/capabilities")
     def training_capabilities() -> dict:
@@ -813,18 +813,28 @@ def create_app(run_agent_fn: Optional[Callable] = None,
     def agent_plan(body: dict) -> dict:
         from webapp import data_agent
         try:
-            return data_agent.propose(session_root(), str(body.get("id", "")), str(body.get("clarification", "")))
+            return data_agent.english_message(session_root(), data_agent.propose(session_root(), str(body.get("id", "")), str(body.get("clarification", ""))))
         except ValueError as exc:
             raise HTTPException(400, str(exc)) from exc
         except Exception as exc:
             # Avoid exposing provider responses or credentials to the browser.
             raise HTTPException(502, _gemini_error_message(exc)) from exc
 
+    @app.post("/api/training/agent-inspect")
+    def agent_inspect(body: dict) -> dict:
+        from webapp import data_agent
+        try:
+            return data_agent.english_message(session_root(), data_agent.inspect_only(session_root(), str(body.get('id', ''))))
+        except ValueError as exc:
+            raise HTTPException(400, str(exc)) from exc
+        except Exception as exc:
+            raise HTTPException(502, _gemini_error_message(exc)) from exc
+
     @app.post("/api/training/agent-run")
     def agent_run(body: dict) -> dict:
         from webapp import data_agent
         try:
-            return data_agent.propose(session_root(), str(body.get("id", "")), str(body.get("clarification", "")), execute=True)
+            return data_agent.english_message(session_root(), data_agent.propose(session_root(), str(body.get("id", "")), str(body.get("clarification", "")), execute=True))
         except ValueError as exc:
             raise HTTPException(400, str(exc)) from exc
         except Exception as exc:
@@ -839,7 +849,7 @@ def create_app(run_agent_fn: Optional[Callable] = None,
     def agent_chat(body: dict) -> dict:
         from webapp import data_agent
         try:
-            return data_agent.respond(session_root(), str(body.get("id", "")), str(body.get("message", "")), history=body.get('history'))
+            return data_agent.english_message(session_root(), data_agent.respond(session_root(), str(body.get("id", "")), str(body.get("message", "")), history=body.get('history')))
         except ValueError as exc:
             raise HTTPException(400, str(exc)) from exc
         except Exception as exc:
@@ -849,7 +859,7 @@ def create_app(run_agent_fn: Optional[Callable] = None,
     def agent_intake(body: dict) -> dict:
         from webapp import data_agent
         try:
-            return data_agent.converse(session_root(), body.get("messages"))
+            return data_agent.english_message(session_root(), data_agent.converse(session_root(), body.get("messages")))
         except ValueError as exc:
             raise HTTPException(400, str(exc)) from exc
         except Exception as exc:

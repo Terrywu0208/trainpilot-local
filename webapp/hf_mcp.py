@@ -15,27 +15,27 @@ async def _call(tool, arguments):
                 await session.initialize()
                 available = {item.name for item in (await session.list_tools()).tools}
                 if tool not in available:
-                    raise ValueError('Hugging Face MCP 未提供所需工具。')
+                    raise ValueError('The Hugging Face MCP does not provide the required tool.')
                 result = await session.call_tool(tool, arguments, read_timeout_seconds=15)
                 if getattr(result, 'isError', False) or getattr(result, 'is_error', False):
-                    raise ValueError('Hugging Face MCP 工具回報錯誤。')
+                    raise ValueError('The Hugging Face MCP tool returned an error.')
                 return '\n'.join(getattr(item, 'text', '') for item in result.content)[:10000]
 
 
 def call(tool, arguments):
     if tool not in ALLOWED_TOOLS:
-        raise ValueError('此 MCP 工具不在唯讀允許清單。')
+        raise ValueError('This MCP tool is not on the read-only allowlist.')
     return asyncio.run(_call(tool, arguments))
 
 
 def search(query='', repo_type='model', task='', limit=5):
     if repo_type not in ('model', 'dataset', 'space') or not isinstance(query, str) or len(query) > 160:
-        raise ValueError('無效的 Hugging Face 搜尋條件。')
+        raise ValueError('Invalid Hugging Face search query.')
     if not isinstance(task, str) or len(task) > 80:
-        raise ValueError('無效的 Hugging Face 任務標籤。')
+        raise ValueError('Invalid Hugging Face task tag.')
     task = re.sub(r'\s+', '-', task.strip().lower())
     if task and not re.fullmatch(r'[a-z0-9-]+', task):
-        raise ValueError('無效的 Hugging Face 任務標籤。')
+        raise ValueError('Invalid Hugging Face task tag.')
     arguments = {'repo_types': [repo_type], 'limit': min(max(int(limit), 1), 5), 'sort': 'downloads'}
     if query:
         arguments['query'] = query
@@ -49,11 +49,11 @@ def search(query='', repo_type='model', task='', limit=5):
                     'tabular regression': 'tabular-regression'}
     if repo_type == 'model' and generic in task_aliases and not re.search(r'(?m)^###\s+\S+/\S+', result):
         fallback = {'repo_types': ['model'], 'filters': [task_aliases[generic]], 'limit': arguments['limit'], 'sort': 'downloads'}
-        return '搜尋條件已調整為任務標籤。\n' + call('hub_repo_search', fallback)
+        return 'The query was adjusted to a task tag.\n' + call('hub_repo_search', fallback)
     return result
 
 
 def details(repo_id, repo_type='model'):
     if repo_type not in ('model', 'dataset', 'space') or not re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9_.-]*/[A-Za-z0-9][A-Za-z0-9_.-]*', repo_id):
-        raise ValueError('無效的 Hugging Face 資源 ID。')
+        raise ValueError('Invalid Hugging Face resource ID.')
     return call('hub_repo_details', {'repo_ids': [repo_id], 'repo_type': repo_type, 'operations': ['overview']})

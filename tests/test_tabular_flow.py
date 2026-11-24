@@ -104,6 +104,7 @@ def test_followup_runs_multiple_real_variants_with_inherited_backend(tmp_path, m
     assert first['state'] == 'completed' and first['result']['checkpoint_reloaded']
     assert first['result']['options']['model_backend'] == 'extension'
     assert first['comparison']['metric'] == 'macro_f1' and first['comparison']['comparable']
+    assert all(version.get('validation_accuracy') is not None and version.get('fit_seconds') is not None and version.get('predict_ms_per_row') is not None for version in first['comparison']['versions'])
     selected = first['result']['proposal']['model']
     assert first['comparison']['versions'][1]['value'] == next(x['validation_score'] for x in first['result']['attempts'] if x['model'] == selected)
     second = variants.create(tmp_path, first['id'], features, {'regularization': 2.0})

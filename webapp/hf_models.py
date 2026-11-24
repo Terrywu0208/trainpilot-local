@@ -20,8 +20,8 @@ def search_mcp(task: str) -> list[dict]:
             continue
         license_match = re.search(r'license:([A-Za-z0-9_.-]+)', chunk)
         results.append({'id': model_id, 'url': 'https://huggingface.co/' + model_id,
-                        'task': tags[task], 'library': '未標示',
-                        'license': license_match.group(1) if license_match else '未標示'})
+                        'task': tags[task], 'library': 'Not specified',
+                        'license': license_match.group(1) if license_match else 'Not specified'})
     return results[:5]
 
 
@@ -34,10 +34,10 @@ def search(task: str) -> list[dict]:
     with urlopen(request, timeout=12) as response:
         raw = response.read(500_001)
     if len(raw) > 500_000:
-        raise ValueError('模型搜尋結果超過大小限制。')
+        raise ValueError('Model search results exceed the size limit.')
     items = json.loads(raw)
     if not isinstance(items, list):
-        raise ValueError('無法解析 Hugging Face 模型清單。')
+        raise ValueError('Could not parse the Hugging Face model list.')
     results = []
     for item in items:
         if not isinstance(item, dict):
@@ -46,8 +46,8 @@ def search(task: str) -> list[dict]:
         if not isinstance(model_id, str) or not re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9_.-]*/[A-Za-z0-9][A-Za-z0-9_.-]*', model_id):
             continue
         tags_found = item.get('tags') if isinstance(item.get('tags'), list) else []
-        license_tag = next((tag[8:] for tag in tags_found if isinstance(tag, str) and tag.startswith('license:')), '未標示')
+        license_tag = next((tag[8:] for tag in tags_found if isinstance(tag, str) and tag.startswith('license:')), 'Not specified')
         results.append({'id': model_id, 'url': 'https://huggingface.co/' + model_id,
                         'task': str(item.get('pipeline_tag') or tags[task])[:100],
-                        'library': str(item.get('library_name') or '未標示')[:100], 'license': license_tag[:100]})
+                        'library': str(item.get('library_name') or 'Not specified')[:100], 'license': license_tag[:100]})
     return results[:5]

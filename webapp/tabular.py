@@ -56,14 +56,14 @@ def analyze(root: Path, run_id: str, task: str, target: str = "", features: list
     if task not in TASKS and task in _plugins():
         return _plugins()[task].analyze(root, run_id, target, features)
     if task not in TASKS:
-        raise ValueError("目前支援分類、數值預測及分群。")
+        raise ValueError("Classification, regression, and clustering are supported.")
     if TASKS[task]["needs_target"] and target not in fields:
-        raise ValueError("請選擇要預測的目標欄位。")
+        raise ValueError("Select a target column to predict.")
     if task == "clustering":
         target = ""
     features = features if features is not None else [f for f in fields if f != target]
     if not isinstance(features, list) or not features or len(features) != len(set(features)) or any(f not in fields or f == target for f in features):
-        raise ValueError("請選擇至少一個有效輸入欄位，且不得包含預測目標。")
+        raise ValueError("Select at least one valid input column and exclude the target.")
     valid = [r for r in rows if not target or r[target]]
     warnings = []
     if len(valid) < 30:
@@ -72,7 +72,7 @@ def analyze(root: Path, run_id: str, task: str, target: str = "", features: list
     for feature in features:
         values = [r[feature] for r in valid if r[feature]]
         if not values:
-            raise ValueError(f"輸入欄位 {feature} 全部為空，請取消選擇。")
+            raise ValueError(f"Input column {feature} is empty; remove it.")
         if re.search(r'(?i:^id$|_id$)|Id$|ID$', feature) and len(set(values)) >= len(values) * .9:
             warnings.append(f"{feature} may be a unique identifier; review whether it should be excluded.")
         if all(_number(value) is not None for value in values):
@@ -133,7 +133,7 @@ def train(root: Path, run_id: str, task: str, target: str = "", features: list |
         raise ValueError(" ".join(proposal["warnings"]))
     folder, _, rows = _load(root, run_id)
     if (folder / "tabular_result.json").exists():
-        raise ValueError("此實驗已完成；重新訓練請再次上傳，以建立獨立實驗。")
+        raise ValueError("This experiment is complete; upload the data again for a separate experiment.")
     names = proposal["features"]
     data = [r for r in rows if not proposal["target"] or r[proposal["target"]]]
     signatures = [tuple(r[f].strip().casefold() for f in names) for r in data]
@@ -154,12 +154,12 @@ def train(root: Path, run_id: str, task: str, target: str = "", features: list |
     options = options or {}
     model_count = options.get('model_count', 2)
     if isinstance(model_count, bool) or not isinstance(model_count, int) or not 1 <= model_count <= 6:
-        raise ValueError('目前支援比較 1 至 6 個本機模型。')
+        raise ValueError('Comparisons support one to six local models.')
     if not isinstance(options.get('auto_ablation', True), bool):
-        raise ValueError('欄位消融設定必須為布林值。')
+        raise ValueError('The feature ablation setting must be a boolean.')
     strength = float(options.get('regularization', 1.0))
     if not .01 <= strength <= 100:
-        raise ValueError('正則化參數必須在 0.01 到 100 之間。')
+        raise ValueError('The regularization parameter must be between 0.01 and 100.')
     def progress(stage, **details):
         if on_progress:
             on_progress({'stage': stage, **details})
@@ -181,7 +181,7 @@ def train(root: Path, run_id: str, task: str, target: str = "", features: list |
                 score = float(silhouette_score(transformed, labels, sample_size=min(len(labels), 500), random_state=42))
                 attempts.append({"groups": k, "silhouette": score})
         if not attempts:
-            raise ValueError("資料無法形成至少兩個不同群組，請檢查輸入欄位。")
+            raise ValueError("The data cannot form at least two distinct clusters; check the input features.")
         best = max(attempts, key=lambda a: a["silhouette"])
         model = Pipeline([("features", transform), ("model", KMeans(n_clusters=best["groups"], random_state=42, n_init=5))])
         model.fit(x)
@@ -197,7 +197,7 @@ def train(root: Path, run_id: str, task: str, target: str = "", features: list |
             x_train, x_test, y_train, y_test = train_test_split(x, y, test_size=.2, random_state=42, stratify=y if task == "classification" else None)
             x_train, x_val, y_train, y_val = train_test_split(x_train, y_train, test_size=.25, random_state=42, stratify=y_train if task == "classification" else None)
         except ValueError as exc:
-            raise ValueError(f"資料不足以切分評估：{exc}") from exc
+            raise ValueError(f"Insufficient data for the evaluation split: {exc}") from exc
         from sklearn.base import clone
         candidates = ([('Logistic Regression', LogisticRegression(max_iter=300, class_weight='balanced', C=strength, random_state=42)),
                        ('Random Forest', RandomForestClassifier(n_estimators=40, max_depth=12, n_jobs=1, random_state=42)),
@@ -216,7 +216,7 @@ def train(root: Path, run_id: str, task: str, target: str = "", features: list |
             backend = adapters.get(backend_id)
             backend_info = backend.describe() if backend else None
             if not backend_info or not backend_info.get('available') or task not in backend_info.get('tasks', []):
-                raise ValueError('指定模型適配器不可用或不支援目前任務。')
+                raise ValueError('The requested model adapter is unavailable or incompatible with this task.')
             candidates[-1] = (backend_info['label'], backend.create(task))
         explicit_keep_all = bool(re.search(r'(?:保留|使用|採用|采用)(?:所有|全部|全部的)(?:欄位|字段|特徵|特征)|(?:keep|use) all features', proposal['goal'], re.I))
         risky = []
@@ -269,7 +269,7 @@ def train(root: Path, run_id: str, task: str, target: str = "", features: list |
                     except Exception as exc:
                         if not backend_info or name != backend_info['label']:
                             raise
-                        warnings.append(f'{name} 執行失敗（{type(exc).__name__}）：{str(exc)[:200]}；此模型未列為成功比較。')
+                        warnings.append(f'{name} training failed ({type(exc).__name__}): {str(exc)[:200]}; excluded from successful comparisons.')
                         progress('model_failed', model=name, profile=profile_name, index=current, total=total)
                         continue
                     elapsed = time.perf_counter() - started
@@ -279,7 +279,7 @@ def train(root: Path, run_id: str, task: str, target: str = "", features: list |
                 except Exception as exc:
                     if not backend_info or name != backend_info['label']:
                         raise
-                    warnings.append(f'{name} 推論失敗（{type(exc).__name__}）：{str(exc)[:200]}；此模型未列為成功比較。')
+                    warnings.append(f'{name} inference failed ({type(exc).__name__}): {str(exc)[:200]}; excluded from successful comparisons.')
                     progress('model_failed', model=name, profile=profile_name, index=current, total=total)
                     continue
                 prediction_seconds = time.perf_counter() - prediction_started
@@ -303,7 +303,7 @@ def train(root: Path, run_id: str, task: str, target: str = "", features: list |
                 trained.append((profile_name, selected_names, indices, candidate, entry))
                 progress('model_complete', model=name, profile=profile_name, index=current, total=total, metric=entry['metric'], score=val_score)
         if not trained:
-            raise ValueError('沒有模型成功執行。' + ' '.join(warnings[-2:]))
+            raise ValueError('No model completed successfully. ' + ' '.join(warnings[-2:]))
         best = (max if task == 'classification' else min)(trained, key=lambda item: item[4]['validation_score'])
         selected_profile, selected_names, selected_indices, model, selected_entry = best
         attempts = profile_attempts[selected_profile]
@@ -342,7 +342,7 @@ def train(root: Path, run_id: str, task: str, target: str = "", features: list |
     restored = joblib.load(artifact)
     check_x = x if task == "clustering" else x_test[:, selected_indices]
     if not np.array_equal(restored.predict(check_x), predictions):
-        raise RuntimeError("重新載入模型後的預測不一致。")
+        raise RuntimeError("Predictions differ after model reload.")
     has_backend = task != 'clustering' and any(a.get('backend') for a in attempts)
     result = {"id": run_id, "status": "completed", "proposal": proposal, "metrics": metrics,
               "split_counts": split, "attempts": attempts, "suggestions": warnings + suggestions,
@@ -359,29 +359,29 @@ def predict(root: Path, run_id: str, values: dict) -> dict:
     if marker.is_file():
         adapter_id = json.loads(marker.read_text(encoding="utf-8"))["id"]
         if adapter_id not in _plugins():
-            raise ValueError("訓練使用的適配器目前不可用。")
+            raise ValueError("The model adapter used for training is unavailable.")
         return _plugins()[adapter_id].predict(root, run_id, values)
     if not (folder / "tabular_result.json").is_file():
-        raise ValueError("請先完成訓練。")
+        raise ValueError("Complete training first.")
     result = json.loads((folder / "tabular_result.json").read_text(encoding="utf-8"))
     proposal = result["proposal"]
     names = proposal["features"]
     if not isinstance(values, dict) or set(values) != set(names):
-        raise ValueError("請提供與訓練時相同的輸入欄位。")
+        raise ValueError("Provide the same input features used during training.")
     x = []
     for name in names:
         value = str(values[name]).strip()
         if len(value) > 5000:
-            raise ValueError("每個欄位最多 5000 個字元。")
+            raise ValueError("Each field must be at most 5,000 characters.")
         if proposal["types"][name]["type"] == "numeric":
             if value and _number(value) is None:
-                raise ValueError(f"{name} 必須是數字。")
+                raise ValueError(f"{name} must be numeric.")
             x.append(_number(value) if value else np.nan)
         else:
             x.append(value)
     prediction = joblib.load(folder / "tabular.joblib").predict(np.array([x], dtype=object))[0]
     return {"value": prediction.item() if hasattr(prediction, "item") else prediction,
-            "task": proposal["task"], "note": "預測是模型估計；分群標號不代表真實分類。"}
+            "task": proposal["task"], "note": "Predictions are estimates; cluster labels are not verified classes."}
 
 
 def report(root: Path, run_id: str) -> str:
@@ -390,18 +390,18 @@ def report(root: Path, run_id: str) -> str:
     if marker.is_file():
         adapter_id = json.loads(marker.read_text(encoding="utf-8"))["id"]
         if adapter_id not in _plugins():
-            raise ValueError("訓練使用的適配器目前不可用。")
+            raise ValueError("The model adapter used for training is unavailable.")
         return _plugins()[adapter_id].report(root, run_id)
     path = folder / "tabular_result.json"
     if not path.is_file():
-        raise ValueError("請先完成訓練。")
+        raise ValueError("Complete training first.")
     r = json.loads(path.read_text(encoding="utf-8"))
     p = r["proposal"]
     source_file = folder / "source.json"
     source = json.loads(source_file.read_text(encoding="utf-8")) if source_file.exists() else None
-    return "\n".join(["# 本機模型實驗報告", "", f"目標：{p['goal'] or '未提供'}", f"資料來源：{source['url'] if source else '使用者提供，未驗證來源'}", f"任務：{p['task']}",
-                      f"模型：{p['model']}", f"輸入欄位：{p['features']}", f"目標欄位：{p['target'] or '無'}",
-                      f"資料筆數：{p['rows']}", f"資料切分：{r['split_counts']}", f"指標：{r['metrics']}",
-                      f"嘗試：{r['attempts']}", f"重新載入模型：{r['checkpoint_reloaded']}", "", "## 建議",
-                      *[f"- {s}" for s in r['suggestions']], "", "## 限制", "- 上傳資料的來源、授權、代表性與欄位語意未由系統獨立驗證。",
-                      "- 本流程由規則選擇已實作的模型，不代表能理解或支援所有任務。", "- 使用資料時請避免洩漏未來資訊或識別欄位。", ""])
+    return "\n".join(["# Local Model Experiment Report", "", f"Goal: {p['goal'] or 'Not provided'}", f"Data source: {source['url'] if source else 'User-provided, unverified source'}", f"Task: {p['task']}",
+                      f"Model: {p['model']}", f"Input features: {p['features']}", f"Target: {p['target'] or 'None'}",
+                      f"Rows: {p['rows']}", f"Data split: {r['split_counts']}", f"Metrics: {r['metrics']}",
+                      f"Attempts: {r['attempts']}", f"Model reload verified: {r['checkpoint_reloaded']}", "", "## Suggestions",
+                      *[f"- {s}" for s in r['suggestions']], "", "## Limitations", "- The system has not independently verified the source, license, representativeness, or column semantics of uploaded data.",
+                      "- The implemented model selection does not support every possible task.", "- Avoid future information leakage and review identifier columns.", ""])

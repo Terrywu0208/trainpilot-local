@@ -14,7 +14,7 @@ from pathlib import Path
 from webapp import classifier
 
 ROOT = Path(__file__).resolve().parent.parent
-MAX_DOWNLOAD = 2_000_000
+MAX_DOWNLOAD = 5_000_000
 
 
 def _environment() -> dict:
@@ -28,7 +28,7 @@ def _environment() -> dict:
                     env['KAGGLE_API_TOKEN'] = value.strip().strip('"').strip("'")
                     break
     if not env.get('KAGGLE_API_TOKEN'):
-        raise ValueError('尚未設定 Kaggle API token，無法讀取 Kaggle。')
+        raise ValueError('Kaggle API token is not configured.')
     return env
 
 
@@ -38,24 +38,24 @@ def _run(*args: str) -> str:
         result = subprocess.run([str(binary), *args], capture_output=True, text=True,
                                 timeout=50, env=_environment(), check=True)
     except subprocess.TimeoutExpired as exc:
-        raise ValueError('Kaggle 連線逾時，請稍後再試。') from exc
+        raise ValueError('Kaggle connection timed out. Please retry.') from exc
     except subprocess.CalledProcessError as exc:
         # Do not expose CLI errors: they may include credentials or private paths.
-        raise ValueError('Kaggle 拒絕或無法完成讀取。該題可能需要先登入並在網站接受規則。') from exc
+        raise ValueError('Kaggle could not read this source. The competition may require accepting its rules on Kaggle.') from exc
     except FileNotFoundError as exc:
-        raise ValueError('尚未安裝 Kaggle 官方 CLI。') from exc
+        raise ValueError('The official Kaggle CLI is not installed.') from exc
     return result.stdout
 
 
 def search(query: str, kind: str = 'competition') -> list[dict]:
     if not query.strip() or len(query) > 100 or kind not in ('competition', 'dataset'):
-        raise ValueError('請提供有效的 Kaggle 搜尋詞與類型。')
+        raise ValueError('Provide a valid Kaggle search term and source type.')
     command = ['competitions', 'list'] if kind == 'competition' else ['datasets', 'list']
     output = _run(*command, '-s', query.strip(), '--format', 'json')
     try:
         results = json.loads(output)
     except json.JSONDecodeError as exc:
-        raise ValueError('無法解析 Kaggle 搜尋結果。') from exc
+        raise ValueError('Could not parse Kaggle search results.') from exc
     found = []
     for item in results[:10]:
         ref = item.get('ref') or item.get('id')
@@ -71,9 +71,12 @@ def search(query: str, kind: str = 'competition') -> list[dict]:
 
 def describe_competition(ref: str) -> dict:
     if not re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9_-]*', ref):
-        raise ValueError('無效的 Kaggle 題目 ID。')
+        raise ValueError('Invalid Kaggle competition ID.')
     files = json.loads(_run('competitions', 'files', ref, '--format', 'json'))
-    pages = json.loads(_run('competitions', 'pages', 'list', '--format', 'json', '--content', '--page-name', 'description', ref))
+    try:
+        pages = json.loads(_run('competitions', 'pages', 'list', '--format', 'json', '--content', '--page-name', 'description', ref))
+    except ValueError:
+        pages = []  # Competition files may be accessible when the pages API is not.
     text = ' '.join(re.sub(r'<[^>]+>', ' ', str(p.get('content', ''))) for p in pages)
     return {'ref': ref, 'kind': 'competition', 'url': 'https://www.kaggle.com/competitions/' + ref,
             'description': text[:3000], 'files': [{'name': f.get('name'), 'size': f.get('size')} for f in files]}
@@ -81,10 +84,10 @@ def describe_competition(ref: str) -> dict:
 
 def prepare(root: Path, kind: str, ref: str, goal: str, filename: str = '') -> dict:
     if kind not in ('competition', 'dataset'):
-        raise ValueError('Kaggle 類型必須為 competition 或 dataset。')
+        raise ValueError('Kaggle source type must be competition or dataset.')
     pattern = r'[A-Za-z0-9][A-Za-z0-9_-]*' if kind == 'competition' else r'[A-Za-z0-9][A-Za-z0-9_-]*/[A-Za-z0-9][A-Za-z0-9_-]*'
     if not re.fullmatch(pattern, ref):
-        raise ValueError('無效的 Kaggle 資料 ID。')
+        raise ValueError('Invalid Kaggle dataset ID.')
     if kind == 'competition':
         details = describe_competition(ref)
         files = details['files']
@@ -100,7 +103,7 @@ def prepare(root: Path, kind: str, ref: str, goal: str, filename: str = '') -> d
     if not selected:
         return {'state': 'needs_file', 'source': details, 'candidates': [f['name'] for f in candidates[:20]]}
     if selected.get('size') is not None and int(selected['size']) > MAX_DOWNLOAD:
-        raise ValueError('所選 CSV 超過 2 MB 本機測試上限，請選擇較小的資料。')
+        raise ValueError('Selected CSV exceeds the 5 MB local limit.')
     import tempfile
     with tempfile.TemporaryDirectory(prefix='trainpilot-kaggle-', dir=str(root.parent)) as tmp:
         args = ['competitions', 'download', ref] if kind == 'competition' else ['datasets', 'download', ref]
@@ -111,18 +114,18 @@ def prepare(root: Path, kind: str, ref: str, goal: str, filename: str = '') -> d
         else:
             archives = list(Path(tmp).glob('*.zip'))
             if len(archives) != 1:
-                raise ValueError('Kaggle 沒有回傳預期的 CSV。')
+                raise ValueError('Kaggle did not return the expected CSV.')
             with zipfile.ZipFile(archives[0]) as z:
                 matching = [entry for entry in z.infolist() if entry.filename == selected['name'] and entry.file_size <= MAX_DOWNLOAD]
                 if len(matching) != 1:
-                    raise ValueError('壓縮檔沒有單一且符合大小限制的 CSV。')
+                    raise ValueError('The archive does not contain one matching CSV within the size limit.')
                 raw_data = z.read(matching[0])
         if len(raw_data) > MAX_DOWNLOAD:
-            raise ValueError('資料超過 2 MB 本機測試上限。')
+            raise ValueError('The CSV exceeds the 5 MB local limit.')
         try:
             content = raw_data.decode('utf-8-sig')
         except UnicodeDecodeError as exc:
-            raise ValueError('目前只支援 UTF-8 CSV。') from exc
+            raise ValueError('Only UTF-8 CSV files are supported.') from exc
     result = classifier.inspect_csv(root, content, goal)
     source = {'kind': kind, 'ref': ref, 'url': details['url'], 'filename': selected['name'],
               'description': details['description']}

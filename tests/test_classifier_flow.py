@@ -38,5 +38,5 @@ def test_rejects_insufficient_conflicting_and_invalid_input(tmp_path):
     assert client.post('/api/classifier/inspect', json={'csv': 'x,x\na,b'}).status_code == 400
     preview = client.post('/api/classifier/inspect', json={'csv': csv_data() + 'refund billing question number 0,shipping\n'}).json()
     plan = client.post('/api/classifier/plan', json={'id': preview['id'], 'text_column': 'text', 'label_column': 'label'}).json()
-    assert not plan['ready'] and any('不同標籤' in w for w in plan['warnings'])
+    assert not plan['ready'] and any('conflicting labels' in w for w in plan['warnings'])
     assert client.post('/api/classifier/predict', json={'id': '../../outside', 'text': 'hello'}).status_code == 400

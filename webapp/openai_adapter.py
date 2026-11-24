@@ -26,7 +26,7 @@ def _key():
                 value = value.strip().strip('"').strip("'")
                 if value:
                     return value
-    raise ValueError('尚未設定 OpenAI API 金鑰。')
+    raise ValueError('OpenAI API key is not configured.')
 
 
 def _schema(value):
@@ -57,7 +57,7 @@ def _inputs(contents):
                 call = part.function_response
                 idx = next((i for i, pair in enumerate(pending) if pair[0] == call.name), None)
                 if idx is None:
-                    raise ValueError('工具回覆沒有對應的模型呼叫。')
+                    raise ValueError('The tool response has no corresponding model call.')
                 _, call_id = pending.pop(idx)
                 items.append({'type': 'function_call_output', 'call_id': call_id,
                               'output': json.dumps(call.response, ensure_ascii=False)})
@@ -91,7 +91,7 @@ class OpenAIAdapter:
         reply = self.sdk.responses.create(**kwargs)
         if reply.status != 'completed':
             reason = getattr(getattr(reply, 'incomplete_details', None), 'reason', None)
-            raise ValueError('OpenAI 回覆未完成' + (f'（{reason}）' if reason in ('max_output_tokens', 'content_filter') else '') + '，請稍後再試或縮小需求。')
+            raise ValueError('OpenAI response was incomplete' + (f'（{reason}）' if reason in ('max_output_tokens', 'content_filter') else '') + '; retry or simplify the request.')
         output = [x.model_dump(mode='json', exclude_none=True) for x in reply.output]
         parts = []
         for item in output:
@@ -99,13 +99,13 @@ class OpenAIAdapter:
                 try:
                     args = json.loads(item['arguments'])
                 except (ValueError, TypeError) as exc:
-                    raise ValueError('模型工具參數不是有效 JSON。') from exc
+                    raise ValueError('Model tool arguments are not valid JSON.') from exc
                 parts.append(types.Part(function_call=types.FunctionCall(name=item['name'], args=args)))
             elif item.get('type') == 'message':
                 for block in item.get('content', []):
                     if block.get('type') == 'output_text' and block.get('text'):
                         parts.append(types.Part(text=block['text']))
         if not parts:
-            raise ValueError('OpenAI 沒有回傳文字或工具呼叫。')
+            raise ValueError('OpenAI returned no text or tool call.')
         parts[0].thought_signature = _MARKER + json.dumps(output, ensure_ascii=False).encode('utf-8')
         return SimpleNamespace(candidates=[SimpleNamespace(content=types.Content(role='model', parts=parts))])

@@ -61,6 +61,17 @@ def test_repeated_identical_valid_plan_does_not_loop(tmp_path):
     assert result['trace'][-1]['status'] == 'auto_finalized'
 
 
+def test_repeated_valid_inspection_finishes_without_starting_training(tmp_path):
+    content, features = make_csv(load_iris())
+    run = classifier.inspect_csv(tmp_path, content, 'Predict the target')
+    args = {'task': 'classification', 'target': 'target', 'features': features}
+    fake = FakeModels([response('inspect_plan', args), response('inspect_plan', args)])
+    result = data_agent.propose(tmp_path, run['id'], client=SimpleNamespace(models=fake), execute=False)
+    assert result['state'] == 'ready' and result['plan']['ready']
+    assert len(fake.requests) == 2
+    assert not (tmp_path / run['id'] / 'tabular.joblib').exists()
+
+
 def test_dataset_name_as_task_is_repaired_only_for_explicit_binary_goal(tmp_path):
     content, features = make_csv(load_iris())
     content = '\n'.join(content.splitlines()[:101]) + '\n'
@@ -70,6 +81,27 @@ def test_dataset_name_as_task_is_repaired_only_for_explicit_binary_goal(tmp_path
     result = data_agent.propose(tmp_path, run['id'], client=SimpleNamespace(models=fake), execute=True)
     assert result['state'] == 'completed' and result['plan']['task'] == 'classification'
     assert any(item['status'] == 'normalized_binary_task' for item in result['trace'])
+
+
+def test_binary_survival_prediction_repairs_dataset_name_task(tmp_path):
+    content, features = make_csv(load_iris())
+    content = '\n'.join(content.splitlines()[:101]) + '\n'
+    run = classifier.inspect_csv(tmp_path, content, 'Predict the survival rate and compare models.')
+    args = {'task': 'titanic', 'target': 'target', 'features': features}
+    fake = FakeModels([response('inspect_plan', args), response('finalize_plan', args)])
+    result = data_agent.propose(tmp_path, run['id'], client=SimpleNamespace(models=fake))
+    assert result['state'] == 'ready' and result['plan']['task'] == 'classification'
+
+
+def test_repeated_identical_planning_error_stops_early_with_reason(tmp_path):
+    content, features = make_csv(load_iris())
+    run = classifier.inspect_csv(tmp_path, content, 'Train a regression model')
+    args = {'task': 'unknown-dataset', 'target': 'target', 'features': features}
+    fake = FakeModels([response('inspect_plan', args)] * 4)
+    result = data_agent.propose(tmp_path, run['id'], client=SimpleNamespace(models=fake))
+    assert result['state'] == 'needs_input'
+    assert 'could not be validated' in result['message']
+    assert len(fake.requests) == 2
 
 
 def test_planner_can_use_hugging_face_mcp_before_inspection(tmp_path, monkeypatch):
@@ -93,17 +125,24 @@ def test_intake_can_search_models_via_mcp(tmp_path, monkeypatch):
     assert 'MCP' in result['message']
 
 
-def test_uninspected_final_plan_is_never_accepted_and_budget_is_bounded(tmp_path):
+def test_uninspected_final_plan_is_never_accepted_and_planning_is_bounded(tmp_path):
     content, features = make_csv(load_iris())
     run = classifier.inspect_csv(tmp_path, content, '預測類別')
     args = {'task': 'classification', 'target': 'target', 'features': features}
     fake = FakeModels([response('finalize_plan', args)] * data_agent.MAX_MODEL_CALLS)
     result = data_agent.propose(tmp_path, run['id'], client=SimpleNamespace(models=fake))
-    assert result['state'] == 'needs_input' and data_agent.budget(tmp_path)['used'] == data_agent.MAX_MODEL_CALLS
-    for _ in range(data_agent.MAX_DAILY_CALLS - data_agent.MAX_MODEL_CALLS):
-        data_agent.budget(tmp_path, consume=True)
-    with pytest.raises(ValueError, match='上限'):
-        data_agent.budget(tmp_path, consume=True)
+    assert result['state'] == 'needs_input' and data_agent.budget(tmp_path)['used'] == 2
+
+
+def test_provider_requests_have_no_local_daily_or_task_quota(tmp_path):
+    import sqlite3
+    data_agent.budget(tmp_path, consume=True, run_id='run', service='openai')
+    with sqlite3.connect(tmp_path / '.openai-budget.sqlite3') as db:
+        db.execute('UPDATE usage SET calls=200')
+        db.execute('UPDATE task_usage SET calls=80')
+    result = data_agent.budget(tmp_path, consume=True, run_id='run', service='openai')
+    assert (result['used'], result['task_used']) == (201, 81)
+    assert result['daily_limit'] is None and result['per_task_limit'] is None
 
 
 def test_provider_requests_are_spaced_across_calls(tmp_path, monkeypatch):
@@ -291,9 +330,9 @@ def test_graph_asks_for_clarification_without_training(tmp_path):
 
 
 def test_agent_clarification_returns_dynamic_choices(tmp_path):
-    fake = FakeModels([response('ask_clarification', {'question': '要使用哪份資料？', 'options': ['上傳 CSV', '搜尋公開資料']})])
+    fake = FakeModels([response('ask_clarification', {'question': '要使用哪份資料？', 'options': ['上傳 CSV', '搜尋公開資料']}), response(text='{"question":"Which data source?","options":["Upload CSV","Search public datasets"]}')])
     result = data_agent.converse(tmp_path, [{'role': 'user', 'text': '我想訓練模型'}], client=SimpleNamespace(models=fake))
-    assert result['options'] == ['上傳 CSV', '搜尋公開資料']
+    assert result['options'] == ['Upload CSV', 'Search public datasets']
 
 
 def test_clarifications_persist_and_task_budget_counts_across_turns(tmp_path):
@@ -362,7 +401,7 @@ def test_dataset_search_requires_explicit_user_request(tmp_path, monkeypatch):
     result = data_agent.converse(tmp_path, [{'role': 'user', 'text': '請搜尋 sentiment 資料集'}], client=SimpleNamespace(models=fake))
     assert result['datasets'][0]['id'] == 'example/public'
     unauthorized = FakeModels([response('search_datasets', {'query': 'sentiment'})])
-    with pytest.raises(ValueError, match='明確'):
+    with pytest.raises(ValueError, match='explicit'):
         data_agent.converse(tmp_path, [{'role': 'user', 'text': '介紹 sentiment 分類'}], client=SimpleNamespace(models=unauthorized))
 
 
@@ -412,3 +451,65 @@ def test_kaggle_ambiguity_gives_choices_and_preserves_original_goal(tmp_path, mo
     fake = FakeModels([response('prepare_kaggle', {'query': 'one/titanic', 'kind': 'dataset', 'filename': ''})])
     result = data_agent.converse(tmp_path, [{'role': 'user', 'text': user_goal}, {'role': 'assistant', 'text': answer['message']}, {'role': 'user', 'text': answer['options'][0]}], client=SimpleNamespace(models=fake))
     assert result['prepared']['source']['ref'] == 'one/titanic' and user_goal in captured['goal']
+
+
+def test_kaggle_csv_choice_is_english_and_resumes_selected_source(tmp_path, monkeypatch):
+    from webapp import kaggle_tools
+    calls = []
+    def prepare(root, kind, ref, goal, filename):
+        calls.append((kind, ref, filename, goal))
+        if not filename:
+            return {'state': 'needs_file', 'candidates': ['train_clean.csv', 'test_clean.csv']}
+        return {'state': 'prepared', 'dataset': {'id': 'example'}, 'source': {'ref': ref}}
+    monkeypatch.setattr(kaggle_tools, 'prepare', prepare)
+    history = [{'role': 'user', 'text': 'Do not train yet; inspect the data.'}, {'role': 'user', 'text': 'Use Kaggle dataset owner/data'}]
+    answer = data_agent.converse(tmp_path, history, client=SimpleNamespace(models=FakeModels([])))
+    assert answer['options'] == ['Use Kaggle dataset owner/data file train_clean.csv', 'Use Kaggle dataset owner/data file test_clean.csv']
+    result = data_agent.converse(tmp_path, history + [{'role': 'assistant', 'text': answer['message']}, {'role': 'user', 'text': answer['options'][0]}], client=SimpleNamespace(models=FakeModels([])))
+    assert result['prepared']['source']['ref'] == 'owner/data'
+    assert calls[-1][2] == 'train_clean.csv' and 'Do not train yet' in calls[-1][3]
+
+
+def test_inspect_only_goal_does_not_start_training(tmp_path):
+    run = classifier.inspect_csv(tmp_path, 'x,target\n1,0\n2,1\n', 'Do NOT train any models yet.')
+    answer = data_agent.propose(tmp_path, run['id'], execute=True)
+    assert answer['state'] == 'needs_input'
+    assert 'not started' in answer['message']
+    answer = data_agent.propose(tmp_path, run['id'], clarification='Run 5-fold cross-validation with LightGBM', execute=True)
+    assert answer['state'] == 'failed' and 'No experiment was started' in answer['message']
+
+
+def test_inspection_returns_local_samples_without_sending_rows_to_model(tmp_path):
+    run = classifier.inspect_csv(tmp_path, 'Cabin,target\nB/0/P,1\n,0\n', 'Do not train yet')
+    fake = FakeModels([response(text='Two potential plans.')])
+    result = data_agent.inspect_only(tmp_path, run['id'], client=SimpleNamespace(models=fake))
+    assert result['examples'][0]['Cabin'] == 'B/0/P'
+    assert result['columns'][0]['missing_percent'] == 50
+    assert 'B/0/P' not in fake.requests[0]['contents']
+    assert result['message'] == 'Two potential plans.'
+
+
+def test_english_model_count_survives_target_clarification_without_reasking(tmp_path):
+    content, features = make_csv(load_iris())
+    run = classifier.inspect_csv(tmp_path, content, 'Compare four models and include a compatible Hugging Face model.')
+    args = {'task': 'classification', 'target': 'target', 'features': features, 'model_count': 2}
+    fake = FakeModels([response('ask_clarification', {'question': '要我用四個模型並包含 Hugging Face 嗎？', 'options': ['是', '否']}), response('inspect_plan', args), response('finalize_plan', args)])
+    result = data_agent.propose(tmp_path, run['id'], clarification='target', client=SimpleNamespace(models=fake))
+    assert result['state'] == 'ready'
+    assert result['plan']['model_count'] == 4
+    assert any(x.get('status') == 'answered_by_capabilities' for x in result['trace'])
+
+
+def test_chinese_clarification_is_translated_to_english(tmp_path):
+    import json
+    fake = FakeModels([response(text=json.dumps({'question': 'Which target column?', 'options': ['target', 'outcome']}))])
+    call = SimpleNamespace(args={'question': '請選擇目標欄位', 'options': ['目標', '結果']})
+    result = data_agent._clarification(call, tmp_path, SimpleNamespace(models=fake))
+    assert result == {'message': 'Which target column?', 'options': ['target', 'outcome']}
+
+
+def test_english_message_translates_assistant_text_without_changing_data(tmp_path, monkeypatch):
+    monkeypatch.setattr(data_agent, '_client', lambda: object())
+    monkeypatch.setattr(data_agent, '_generate', lambda *args, **kwargs: response(text='Please confirm the target column.'))
+    result = data_agent.english_message(tmp_path, {'message': '請確認目標欄位', 'dataset': {'name': '中文資料'}})
+    assert result == {'message': 'Please confirm the target column.', 'dataset': {'name': '中文資料'}}

@@ -443,6 +443,9 @@
   @keyframes cell-split { 0% {opacity:0;transform:translateX(-35px) scale(.35,.7)} 65% {opacity:1;transform:translateX(3px) scale(1.12,.9)} 100% {opacity:1;transform:none} }
   @keyframes cell-merge { 0% {opacity:1;transform:none} 100% {opacity:0;transform:translateX(-35px) scale(.3,.65)} }
   .training-popup { margin:0 max(16px,5%) 8px;padding:11px 14px;border:1px solid #d2e1e8;background:#f4fafb;border-radius:12px;color:#16374b;font-size:13px; }
+  .agent-working::after { content:"";display:inline-block;width:.8em;height:.8em;margin-left:.6em;vertical-align:middle;border:2px solid #d5cbe9;border-top-color:#6847ae;border-radius:50%;animation:agent-spin .8s linear infinite }
+  @keyframes agent-spin { to { transform:rotate(360deg) } }
+  @media (prefers-reduced-motion: reduce) { .agent-working::after { animation-duration:2s } }
   .choice-popup {margin:0 max(16px,5%) 8px;padding:12px 14px;border:1px solid #ded8ef;background:#faf8ff;border-radius:12px;color:#332a50;font-size:13px}.choice-popup[hidden]{display:none}.choice-popup strong{display:block;margin-bottom:8px}.choice-options{display:flex;flex-wrap:wrap;gap:8px}.choice-options button{border:1px solid #c9bce8;background:white;color:#483279;padding:8px 12px;border-radius:9px;cursor:pointer}.choice-options button:hover{background:#eee8fb}.choice-options button:focus-visible{outline:2px solid #7153bc;outline-offset:2px}
   .training-popup strong {display:block;font-size:14px} .training-popup progress {width:100%;height:7px;accent-color:#147b83}
   .comparison-chart {margin-top:10px;padding:12px;background:#f4f8fa;border-radius:10px;max-width:100%;overflow-x:auto;font-size:13px}
@@ -515,8 +518,6 @@
     <div class="pane-right">
       <div class="chat-head">
         <div class="session-picker"><label class="vh" for="training-session-select">Training session</label><select id="training-session-select" aria-label="Training session"></select><button id="new-training-session" type="button">+ New training</button></div>
-        <span id="gemini-budget" style="color:var(--ink-3)">Checking model usage</span>
-        <button type="button" id="toggle-trace" class="trace-toggle" aria-expanded="false">View execution log</button>
         <span id="session-control"><label for="session-id">Session:</label>
           <input id="session-id" value="demo-session"></span>
         <span class="ctx" id="session-ctx"><span class="dot"></span><span id="session-ctx-text">Session context: none yet &mdash; this session has not completed a run.</span></span>
