@@ -1,0 +1,16 @@
+backend: gloo
+dataset: sst2
+epochs: 1
+gradient_accumulation_steps: 2
+learning_rate: 2.0e-05
+max_length: 64
+max_steps: 40
+model_name: distilbert-base-uncased
+model_revision: main
+num_workers: 2
+output_dir: workspaces/local-smoke
+per_worker_batch_size: 8
+resources_per_worker_memory: 2Gi
+seed: 42
+train_subsample: 1024
+val_subsample: 256

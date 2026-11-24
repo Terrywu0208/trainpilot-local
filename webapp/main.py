@@ -25,8 +25,10 @@ the above is required for the test suite.
 from __future__ import annotations
 
 import asyncio
+import contextvars
 import hashlib
 import json
+import os
 import time
 import uuid
 from dataclasses import dataclass, field
@@ -35,13 +37,31 @@ from pathlib import Path
 from typing import Any, Callable, Optional
 
 from fastapi import FastAPI, HTTPException, Request
-from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
+from fastapi.responses import FileResponse, JSONResponse, StreamingResponse, PlainTextResponse, HTMLResponse
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 STATIC_DIR = Path(__file__).resolve().parent / "static"
 
 GATE_FIRST_LAUNCH = "gate1_first_launch"
 GATE_IRREVERSIBLE = "gate2_irreversible"
+
+
+def _gemini_error_message(exc: Exception) -> str:
+    code = getattr(exc, 'status_code', None) or getattr(exc, 'code', None)
+    from webapp import data_agent
+    if data_agent.provider() == 'openai':
+        if code == 429:
+            return 'OpenAI 額度或速率限制（429）；請檢查 API 餘額與用量後再試。'
+        if code in (401, 403):
+            return f'OpenAI 拒絕存取（{code}）；請檢查 API 金鑰與模型權限。'
+        return 'OpenAI 請求未完成，請檢查 API 狀態、模型權限或連線。'
+    if code in (502, 503, 504):
+        return f'Gemini 服務暫時無法回應（{code}）；請稍後再試。若已設定備援，系統已嘗試切換模型。'
+    if code == 429:
+        return 'Gemini 已達速率或額度限制（429）；請查看 Google AI Studio 的實際用量後稍候再試。'
+    if code in (401, 403):
+        return f'Gemini 拒絕存取（{code}）；請檢查金鑰、專案與模型權限。'
+    return 'Gemini 請求未完成；請檢查網路與服務狀態後再試。'
 
 # Node names come from Section A; the Plan View renders exactly these.
 PLAN_NODES = [
@@ -546,6 +566,14 @@ def _default_run_agent(request_text: str, run_dir: Path,
                        session_context: str) -> dict[str, Any]:
     """Resolve the real agent lazily. Every import is guarded so the
     webapp works (via the canned fallback) before Sections A/C exist."""
+    if os.environ.get("TRAINPILOT_EXECUTOR", "local") == "kuberay":
+        # Explicit mode: errors propagate; never substitute a scripted demo.
+        from trainpilot.graph import run_agent as graph_run_agent
+        from training.kuberay_runner import KubeRayExecutor
+        return graph_run_agent(request_text, executor=KubeRayExecutor(),
+                               approval_handler=approval_handler,
+                               run_dir=run_dir, session_context=session_context)
+
     run_agent = None
     try:
         from trainpilot.graph import run_agent as graph_run_agent
@@ -704,6 +732,194 @@ def create_app(run_agent_fn: Optional[Callable] = None,
     app = FastAPI(title="TrainPilot-Local", version="1.0.0")
     app.state.manager = manager
     app.state.reports_dir = reports_dir
+    classifier_root = (Path(runs_root) if runs_root else REPO_ROOT / "runs") / "classifier"
+    active_training_root = contextvars.ContextVar('active_training_root', default=classifier_root)
+
+    def session_root() -> Path:
+        root = active_training_root.get()
+        root.mkdir(parents=True, exist_ok=True)
+        return root
+
+    @app.middleware('http')
+    async def training_session_scope(request: Request, call_next):
+        session = request.headers.get('X-Training-Session')
+        if not session and request.url.path.endswith('/report'):
+            session = request.query_params.get('session')
+        if session and not __import__('re').fullmatch(r'[a-f0-9]{32}', session):
+            return JSONResponse(status_code=400, content={'detail': '無效的訓練 session。'})
+        root = classifier_root / 'sessions' / session if session else classifier_root
+        token = active_training_root.set(root)
+        try:
+            return await call_next(request)
+        finally:
+            active_training_root.reset(token)
+
+    @app.post("/api/classifier/inspect")
+    def classifier_inspect(body: dict) -> dict:
+        from webapp import classifier
+        try:
+            return classifier.inspect_csv(session_root(), str(body.get("csv", "")), str(body.get("goal", "")))
+        except ValueError as exc:
+            raise HTTPException(400, str(exc)) from exc
+
+    @app.post("/api/classifier/plan")
+    def classifier_plan(body: dict) -> dict:
+        from webapp import classifier
+        try:
+            return classifier.plan(session_root(), str(body.get("id", "")), str(body.get("text_column", "")), str(body.get("label_column", "")))
+        except ValueError as exc:
+            raise HTTPException(400, str(exc)) from exc
+
+    @app.post("/api/classifier/train")
+    def classifier_train(body: dict) -> dict:
+        from webapp import classifier
+        try:
+            return classifier.train(session_root(), str(body.get("id", "")), str(body.get("text_column", "")), str(body.get("label_column", "")))
+        except ValueError as exc:
+            raise HTTPException(400, str(exc)) from exc
+
+    @app.post("/api/classifier/predict")
+    def classifier_predict(body: dict) -> dict:
+        from webapp import classifier
+        try:
+            return classifier.predict(session_root(), str(body.get("id", "")), str(body.get("text", "")))
+        except ValueError as exc:
+            raise HTTPException(400, str(exc)) from exc
+
+    @app.get("/api/classifier/{run_id}/report", response_class=PlainTextResponse)
+    def classifier_report(run_id: str) -> str:
+        from webapp import classifier
+        try:
+            return classifier.report(session_root(), run_id)
+        except ValueError as exc:
+            raise HTTPException(400, str(exc)) from exc
+
+    @app.get("/api/datasets/search")
+    def datasets_search(q: str) -> dict:
+        from webapp import classifier
+        try:
+            return {"datasets": classifier.search_datasets(q)}
+        except ValueError as exc:
+            raise HTTPException(400, str(exc)) from exc
+        except (OSError, TimeoutError):
+            raise HTTPException(502, "無法連線 Hugging Face，請稍後再試。")
+
+    @app.get("/api/training/capabilities")
+    def training_capabilities() -> dict:
+        from webapp import tabular
+        return tabular.catalog()
+
+    @app.post("/api/training/agent-plan")
+    def agent_plan(body: dict) -> dict:
+        from webapp import data_agent
+        try:
+            return data_agent.propose(session_root(), str(body.get("id", "")), str(body.get("clarification", "")))
+        except ValueError as exc:
+            raise HTTPException(400, str(exc)) from exc
+        except Exception as exc:
+            # Avoid exposing provider responses or credentials to the browser.
+            raise HTTPException(502, _gemini_error_message(exc)) from exc
+
+    @app.post("/api/training/agent-run")
+    def agent_run(body: dict) -> dict:
+        from webapp import data_agent
+        try:
+            return data_agent.propose(session_root(), str(body.get("id", "")), str(body.get("clarification", "")), execute=True)
+        except ValueError as exc:
+            raise HTTPException(400, str(exc)) from exc
+        except Exception as exc:
+            raise HTTPException(502, _gemini_error_message(exc)) from exc
+
+    @app.get("/api/training/agent-budget")
+    def agent_budget() -> dict:
+        from webapp import data_agent
+        return data_agent.budget(classifier_root, service=data_agent.provider())
+
+    @app.post("/api/training/agent-chat")
+    def agent_chat(body: dict) -> dict:
+        from webapp import data_agent
+        try:
+            return data_agent.respond(session_root(), str(body.get("id", "")), str(body.get("message", "")), history=body.get('history'))
+        except ValueError as exc:
+            raise HTTPException(400, str(exc)) from exc
+        except Exception as exc:
+            raise HTTPException(502, _gemini_error_message(exc)) from exc
+
+    @app.post("/api/training/agent-intake")
+    def agent_intake(body: dict) -> dict:
+        from webapp import data_agent
+        try:
+            return data_agent.converse(session_root(), body.get("messages"))
+        except ValueError as exc:
+            raise HTTPException(400, str(exc)) from exc
+        except Exception as exc:
+            raise HTTPException(502, _gemini_error_message(exc)) from exc
+
+    @app.get("/api/training/{run_id}/events")
+    def data_agent_events(run_id: str) -> dict:
+        from webapp import classifier
+        try:
+            event_file = classifier._folder(session_root(), run_id) / "agent_events.jsonl"
+            events = []
+            if event_file.exists():
+                for line in event_file.read_text(encoding="utf-8").splitlines():
+                    try:
+                        events.append(json.loads(line))
+                    except json.JSONDecodeError:
+                        continue  # A concurrent writer may not have finished the last line.
+            return {"events": events[-100:]}
+        except ValueError as exc:
+            raise HTTPException(400, str(exc)) from exc
+
+    @app.post("/api/training/variant")
+    def training_variant(body: dict) -> dict:
+        from webapp import variants
+        try:
+            return variants.create(session_root(), str(body.get('parent_id', '')), body.get('features'), body.get('options') or {})
+        except ValueError as exc:
+            raise HTTPException(400, str(exc)) from exc
+
+    @app.get("/api/training/compare")
+    def training_compare(first: str, second: str) -> dict:
+        from webapp import variants
+        try:
+            return variants.compare(session_root(), first, second)
+        except ValueError as exc:
+            raise HTTPException(400, str(exc)) from exc
+
+    @app.post("/api/training/plan")
+    def training_plan(body: dict) -> dict:
+        from webapp import tabular
+        try:
+            return tabular.analyze(session_root(), str(body.get("id", "")), str(body.get("task", "")), str(body.get("target", "")), body.get("features"))
+        except ValueError as exc:
+            raise HTTPException(400, str(exc)) from exc
+
+    @app.post("/api/training/train")
+    def training_train(body: dict) -> dict:
+        from webapp import tabular
+        try:
+            return tabular.train(session_root(), str(body.get("id", "")), str(body.get("task", "")), str(body.get("target", "")), body.get("features"))
+        except ValueError as exc:
+            raise HTTPException(400, str(exc)) from exc
+
+    @app.post("/api/training/predict")
+    def training_predict(body: dict) -> dict:
+        from webapp import tabular
+        try:
+            return tabular.predict(session_root(), str(body.get("id", "")), body.get("values"))
+        except ValueError as exc:
+            raise HTTPException(400, str(exc)) from exc
+
+    @app.get("/api/training/{run_id}/report", response_class=HTMLResponse)
+    def training_report(run_id: str) -> str:
+        from webapp import classifier, report_page, tabular
+        try:
+            if (classifier._folder(session_root(), run_id) / 'tabular_adapter.json').is_file():
+                return PlainTextResponse(tabular.report(session_root(), run_id))
+            return report_page.render(session_root(), run_id)
+        except ValueError as exc:
+            raise HTTPException(400, str(exc)) from exc
 
     @app.get("/health")
     async def health() -> dict[str, str]:
@@ -713,6 +929,10 @@ def create_app(run_agent_fn: Optional[Callable] = None,
     async def index() -> FileResponse:
         return FileResponse(STATIC_DIR / "index.html",
                             media_type="text/html")
+
+    @app.get("/data-chat.js")
+    def data_chat_script() -> FileResponse:
+        return FileResponse(STATIC_DIR / "data-chat.js", media_type="text/javascript")
 
     @app.post("/api/runs")
     async def create_run(request: Request) -> JSONResponse:

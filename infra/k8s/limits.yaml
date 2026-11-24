@@ -33,7 +33,7 @@ spec:
         cpu: "2"
         memory: "3Gi"
       min:
-        cpu: "250m"
+        cpu: "200m"
         memory: "128Mi"
 ---
 # Default-deny egress. Allowed: intra-namespace pod-to-pod traffic

@@ -18,6 +18,12 @@ dependencies = [
 
 [project.optional-dependencies]
 webapp = ["fastapi>=0.110", "uvicorn>=0.29"]
+classifier = ["scikit-learn>=1.5,<2"]
+hf-tabular = ["predictlm==11.1.0", "huggingface_hub>=0.24", "torch>=2"]
+mcp = ["mcp>=2,<3"]
+gemini = ["google-genai>=1,<4"]
+openai = ["openai>=2,<3", "google-genai>=1,<4"]
+kaggle = ["kaggle>=2,<3", "six>=1.16"]
 eval = ["httpx>=0.27", "openai>=1.40"]
 train = ["torch", "transformers", "datasets", "ray[train]"]
 dev = ["pytest>=8.0", "httpx>=0.27", "fastapi>=0.110", "uvicorn>=0.29"]

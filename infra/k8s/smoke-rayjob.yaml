@@ -23,7 +23,6 @@ metadata:
     trainpilot/spec-hash: "smoke-001"
 spec:
   entrypoint: >-
-    mkdir -p /trainpilot/workspaces/smoke-001 &&
     python /app/training/train.py
     --config /app/training/smoke_config.yaml --backend smoke
   shutdownAfterJobFinishes: false

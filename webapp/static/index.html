@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>TrainPilot-Local — Local CPU Demo Console</title>
+<title>TrainPilot · Training Assistant</title>
 <style>
   :root {
     /* surfaces & lines */
@@ -416,12 +416,47 @@
     *, *::before, *::after { animation-duration: .001s !important;
       animation-iteration-count: 1 !important; transition-duration: .001s !important; }
   }
+  /* Conversation is primary; the execution trace opens only when requested. */
+  body { background:#fff; }
+  header { background:#fff;color:var(--ink);border-bottom:1px solid var(--line);padding:12px 24px; }
+  header .mode-badge, header .chips, nav { display:none; }
+  main { max-width:1400px;padding:0 16px 12px; }
+  #view-console.active { height:calc(100dvh - 58px);border:0;padding:0; }
+  .console-split { display:grid;grid-template-columns:1fr;max-width:920px;width:100%;margin:0 auto;gap:16px; }
+  .pane-left { display:none; }
+  .console-split.show-trace { grid-template-columns:minmax(280px,.8fr) minmax(380px,1.2fr);max-width:1300px; }
+  .console-split.show-trace .pane-left { display:block; }
+  .pane-right { border:0; }
+  .chat-head { justify-content:flex-end;border:0;padding:8px 12px; }
+  .chat-head .ctx,#session-control { display:none; }
+  .trace-toggle { border:1px solid var(--line);background:white;border-radius:8px;padding:7px 10px;cursor:pointer;color:var(--ink-2); }
+  .session-picker{display:flex;align-items:center;gap:7px;margin-right:auto}.session-picker select,.session-picker button{border:1px solid #e1ddec;background:#fff;border-radius:9px;padding:7px 10px;color:#4b4162;font:inherit;font-size:13px}.session-picker button{cursor:pointer}.session-picker button:hover{background:#f6f3ff}.session-picker select{max-width:150px}
+  .chat-list { padding:24px max(16px,5%) 16px; }
+  .composer { border:0;padding:8px max(16px,5%) 18px; }
+  .composer .presets,details.run-options { display:none; }
+  .msg.assistant { white-space:pre-wrap; }
+  .agent-stage { position:absolute;top:8px;left:50%;transform:translateX(-50%);display:flex;align-items:center;justify-content:center;gap:8px;pointer-events:none;z-index:3; }
+  .pet { width:40px;height:40px;filter:drop-shadow(0 2px 2px #71809555);flex:none; }
+  .pet-clones { display:flex;gap:6px;align-items:center; }
+  .pet.clone { animation:cell-split .55s ease-out both; }
+  .pet.clone.merge { animation:cell-merge .55s ease-in both; }
+  @keyframes cell-split { 0% {opacity:0;transform:translateX(-35px) scale(.35,.7)} 65% {opacity:1;transform:translateX(3px) scale(1.12,.9)} 100% {opacity:1;transform:none} }
+  @keyframes cell-merge { 0% {opacity:1;transform:none} 100% {opacity:0;transform:translateX(-35px) scale(.3,.65)} }
+  .training-popup { margin:0 max(16px,5%) 8px;padding:11px 14px;border:1px solid #d2e1e8;background:#f4fafb;border-radius:12px;color:#16374b;font-size:13px; }
+  .choice-popup {margin:0 max(16px,5%) 8px;padding:12px 14px;border:1px solid #ded8ef;background:#faf8ff;border-radius:12px;color:#332a50;font-size:13px}.choice-popup[hidden]{display:none}.choice-popup strong{display:block;margin-bottom:8px}.choice-options{display:flex;flex-wrap:wrap;gap:8px}.choice-options button{border:1px solid #c9bce8;background:white;color:#483279;padding:8px 12px;border-radius:9px;cursor:pointer}.choice-options button:hover{background:#eee8fb}.choice-options button:focus-visible{outline:2px solid #7153bc;outline-offset:2px}
+  .training-popup strong {display:block;font-size:14px} .training-popup progress {width:100%;height:7px;accent-color:#147b83}
+  .comparison-chart {margin-top:10px;padding:12px;background:#f4f8fa;border-radius:10px;max-width:100%;overflow-x:auto;font-size:13px}
+  .model-table {width:100%;border-collapse:collapse;margin-top:8px;text-align:left;font-variant-numeric:tabular-nums}.model-table th,.model-table td {padding:6px 8px;border-bottom:1px solid #dce8ec}.model-table th {font-weight:650;white-space:nowrap}
+  .comparison-track {height:9px;background:#dce8ec;border-radius:8px;overflow:hidden;margin:4px 0 9px}.comparison-bar {height:100%;background:#167880;border-radius:8px}
+  @media(prefers-reduced-motion:reduce){.pet.clone,.pet.clone.merge{animation-duration:.01ms!important}}
+  @media(max-width:760px){.console-split.show-trace{grid-template-columns:1fr}.console-split.show-trace .pane-left{max-height:28vh}.pane-right{height:100%}.chat-head{padding:5px}.composer{padding:8px 4px 12px}}
 </style>
 </head>
 <body>
 <header>
   <h1>TrainPilot-Local</h1>
-  <span class="mode-badge">Local &middot; CPU-only demo</span>
+  <div class="agent-stage" aria-label="Agent status"><svg id="pet-main" class="pet" viewBox="0 0 64 64" aria-label="Ghost training assistant" role="img"><path class="ghost-body" fill="#7564c8" d="M12 33C12 18.8 20.1 9 32 9s20 9.8 20 24v13c0 4.7-3.7 7.1-7.3 3.6l-2.3-2.3-3.9 4c-2 2.1-4.9 2.1-6.9 0L28 47.5l-3.7 3.8c-2.1 2.1-4.9 2.1-6.9 0l-2.5-2.6C13 46.8 12 45.1 12 42z"/><ellipse cx="25" cy="30" rx="3.2" ry="4.3" fill="#fff"/><ellipse cx="39" cy="30" rx="3.2" ry="4.3" fill="#fff"/><circle cx="25.5" cy="30.5" r="1.5" fill="#302758"/><circle cx="39.5" cy="30.5" r="1.5" fill="#302758"/><path d="M29 38q3 2.4 6 0" fill="none" stroke="#fff" stroke-width="1.8" stroke-linecap="round"/><circle class="ghost-spark" cx="49" cy="12" r="3" fill="#f1bd78"/><path d="M48 5v2M48 17v2M42 12h2M54 12h2" stroke="#f1bd78" stroke-width="1.3" stroke-linecap="round"/></svg><div id="pet-clones" class="pet-clones"></div></div>
+  <span class="mode-badge">Local training</span>
   <div class="chips">
     <span class="chip"><span class="dot" id="chip-server-dot"></span><span id="chip-server">Server: checking&hellip;</span></span>
     <span class="chip"><span class="dot on"></span><span>LLM: stub &middot; offline (no API calls, no cost)</span></span>
@@ -479,13 +514,16 @@
     <!-- RIGHT pane: the chat — talk to the agent -->
     <div class="pane-right">
       <div class="chat-head">
-        <span><label for="session-id">Session:</label>
+        <div class="session-picker"><label class="vh" for="training-session-select">Training session</label><select id="training-session-select" aria-label="Training session"></select><button id="new-training-session" type="button">+ New training</button></div>
+        <span id="gemini-budget" style="color:var(--ink-3)">Checking model usage</span>
+        <button type="button" id="toggle-trace" class="trace-toggle" aria-expanded="false">View execution log</button>
+        <span id="session-control"><label for="session-id">Session:</label>
           <input id="session-id" value="demo-session"></span>
         <span class="ctx" id="session-ctx"><span class="dot"></span><span id="session-ctx-text">Session context: none yet &mdash; this session has not completed a run.</span></span>
       </div>
 
       <div class="chat-list" id="chat-messages">
-        <div class="msg system">Ask the agent to fine-tune a model. Its step-by-step progress appears in the diagram on the left; the conversation happens here. Everything runs on this machine (DistilBERT on SST-2, 2 CPU workers); nothing irreversible happens without a human approving it first.</div>
+        <div class="msg system">Describe your training goal, or press + to upload a CSV. The model provider receives chat messages, column names, and statistics; data rows and training remain local. Requests are rate-limited; API charges and quotas depend on the provider.</div>
       </div>
 
       <!-- Approval gate card: docked above the composer while a gate is pending -->
@@ -508,6 +546,8 @@
       </div>
 
       <div class="composer dim">
+        <div id="training-popup" class="training-popup" role="status" hidden><strong id="training-title">Preparing local training</strong><span id="training-detail">Waiting for model information…</span><progress id="training-progress" max="100" value="0"></progress></div>
+        <div id="choice-popup" class="choice-popup" role="group" aria-label="The agent needs your input" hidden><strong id="choice-question"></strong><div id="choice-options" class="choice-options"></div><span>You can also type a response below.</span></div>
         <div class="presets">
           <span>Try:</span>
           <button type="button" class="preset" id="preset-canonical">Canonical fine-tune</button>
@@ -516,7 +556,7 @@
         </div>
         <div class="composer-card">
           <label class="vh" for="request-text">What should the agent do?</label>
-          <textarea id="request-text" rows="2" placeholder="Message TrainPilot — describe the training job in plain language&hellip;">Fine-tune DistilBERT on SST-2 with 2 CPU workers</textarea>
+          <textarea id="request-text" rows="2" placeholder="Describe what you want to predict or analyze, or upload data and tell me your goal…"></textarea>
           <details class="run-options" id="run-options">
             <summary><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 8h10M18 8h2M4 16h4M12 16h8"/><circle cx="16" cy="8" r="2.2"/><circle cx="10" cy="16" r="2.2"/></svg>Run options — optional; the sentence above wins</summary>
             <div class="row">
@@ -530,11 +570,13 @@
             </div>
           </details>
           <div class="composer-bar">
-            <span class="composer-note">Local CPU only. Nothing is claimed until it is verified.</span>
+            <button type="button" id="attach-file" title="Upload data" aria-label="Upload data" style="width:36px;height:36px;border:1px solid var(--line-strong);background:var(--surface);color:var(--ink);border-radius:50%;font-size:22px;cursor:pointer">＋</button>
+            <input id="chat-file" type="file" accept=".csv,text/csv" hidden>
+            <span id="chat-file-name" class="composer-note">Attach a CSV and describe your goal</span>
             <button class="send" id="btn-run" title="Start run (Enter)" aria-label="Start run"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19V5"/><path d="M5 12l7-7 7 7"/></svg></button>
           </div>
         </div>
-        <div class="composer-status"><span id="run-status" class="muted">No run yet — runs execute one at a time.</span></div>
+        <div class="composer-status"><span id="run-status" class="muted">Ready</span></div>
       </div>
     </div>
 
@@ -1330,6 +1372,7 @@ function resetConsoleForRun() {
 $("btn-run").addEventListener("click", async () => {
   const sessionId = $("session-id").value || "default";
   const requestText = $("request-text").value;
+  if (await maybeHandleDataChat(requestText)) return;
   const body = {
     request: requestText,
     session_id: sessionId,
@@ -1733,5 +1776,6 @@ pollHealth();
 setInterval(pollHealth, 5000);
 loadRunsTable();
 </script>
+<script src="/data-chat.js"></script>
 </body>
 </html>
